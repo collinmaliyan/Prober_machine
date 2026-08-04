@@ -1,0 +1,22 @@
+# Python Virtual Environment
+venv/
+.venv/
+Env/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temporary/Backup files
+*.bak
+script.js.bak
+Backup_*.py
+backup_before_edit/
+
+# Local databases and logs
+logs/*.csv
+*.log
+*.sqlite

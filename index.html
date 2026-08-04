@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RFID Prober GUI</title>
+    <link rel="stylesheet" href="styles.css?v=5">
+</head>
+
+<body>
+    <div class="top-gradient-bar"></div>
+    <div class="container">
+        <!-- Left Navigation Panel -->
+        <div class="nav-panel">
+            <div class="logo">
+                <img src="NXP_logo.png" alt="Company Logo">
+                <h1 class="sub-head">RFID Prober Project</h1>
+            </div>
+
+            <!-- --- [COMMENTED OUT] Old flat text-only nav buttons --- -->
+            <!--
+            <div class="nav-buttons">
+                <button class="nav-button active" onclick="switchPage('home', this)">Home</button>
+                <button class="nav-button" onclick="switchPage('agv', this)">AGV View</button>
+                <button class="nav-button" onclick="switchPage('log', this)">Log FPC</button>
+                <button class="nav-button" onclick="switchPage('cassette-log', this)">Log Cassette</button>
+                <button class="nav-button" onclick="switchPage('setting', this)">Setting</button>
+                <button class="nav-button" onclick="switchPage('about', this)">About</button>
+            </div>
+            -->
+
+            <!-- --- [NEW] Modern Minimalist Nav Buttons with Inline SVG Icons --- -->
+            <div class="nav-buttons">
+                <button class="nav-button active" onclick="switchPage('home', this)">
+                    <svg viewBox="0 0 24 24">
+                        <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                    </svg>
+                    <span>Home</span>
+                </button>
+                <!-- --- [COMMENTED OUT] Old generic icons --- -->
+                <!--
+                <button class="nav-button" onclick="switchPage('agv', this)">
+                    <svg viewBox="0 0 24 24"><rect width="16" height="10" x="2" y="4" rx="2"/><line x1="8" x2="8" y1="20" y2="14"/><line x1="16" x2="16" y1="20" y2="14"/><line x1="12" x2="12" y1="20" y2="14"/><line x1="2" x2="22" y1="20" y2="20"/></svg>
+                    <span>AGV View</span>
+                </button>
+                <button class="nav-button" onclick="switchPage('log', this)">
+                    <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                    <span>Log FPC</span>
+                </button>
+                <button class="nav-button" onclick="switchPage('cassette-log', this)">
+                    <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                    <span>Log Cassette</span>
+                </button>
+                -->
+
+                <!-- --- [NEW] Updated thematic icons for AGV View, Log FPC, and Log Cassette --- -->
+                <!-- START OF AGV VIEW sidebar button (AGV View code section)
+                <button class="nav-button" onclick="switchPage('agv', this)">
+                    <svg viewBox="0 0 24 24">
+                        <rect x="2" y="8" width="20" height="8" rx="2" />
+                        <circle cx="7" cy="19" r="2.5" />
+                        <circle cx="17" cy="19" r="2.5" />
+                        <path d="M5 8V4h14v4" />
+                        <line x1="9" y1="12" x2="15" y2="12" />
+                    </svg>
+                    <span>AGV View</span>
+                </button>
+                END OF AGV VIEW sidebar button (AGV View code section) -->
+                <button class="nav-button" onclick="switchPage('log', this)">
+                    <svg viewBox="0 0 24 24">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <path d="M9 9h6v6H9z" />
+                        <path d="M9 1v2" />
+                        <path d="M15 1v2" />
+                        <path d="M9 21v2" />
+                        <path d="M15 21v2" />
+                        <path d="M21 9h2" />
+                        <path d="M21 15h2" />
+                        <path d="M1 9h2" />
+                        <path d="M1 15h2" />
+                    </svg>
+                    <span>Log RFID</span>
+                </button>
+                <button class="nav-button" onclick="switchPage('cassette-log', this)">
+                    <svg viewBox="0 0 24 24">
+                        <rect width="18" height="18" x="3" y="3" rx="2" />
+                        <path d="M3 9h18" />
+                        <path d="M3 15h18" />
+                        <circle cx="7" cy="6" r="1.5" />
+                        <circle cx="7" cy="12" r="1.5" />
+                        <circle cx="7" cy="18" r="1.5" />
+                        <line x1="11" y1="6" x2="19" y2="6" />
+                        <line x1="11" y1="12" x2="19" y2="12" />
+                        <line x1="11" y1="18" x2="19" y2="18" />
+                    </svg>
+                    <span>Log PMI</span>
+                </button>
+                <button class="nav-button" onclick="switchPage('setting', this)">
+                    <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    <span>Setting</span>
+                </button>
+                <button class="nav-button" onclick="switchPage('about', this)">
+                    <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="16" x2="12" y2="12" />
+                        <line x1="12" y1="8" x2="12.01" y2="8" />
+                    </svg>
+                    <span>About</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Global DateTime Display - shown on all pages -->
+            <div class="global-datetime-indicator">
+                <span id="global-datetime-display" class="datetime">Loading...</span>
+            </div>
+
+            <!-- HOME PAGE -->
+            <div id="home" class="page-content active">
+                <div class="header">
+                    <!-- --- [COMMENTED OUT] Old static machine title header --- -->
+                    <!-- <h1 class="machine-title">AVT#55</h1> -->
+                    <!-- --- [NEW] Machine title header with ID for dynamic updates --- -->
+                    <h1 class="machine-title" id="main-machine-title">AVT#55</h1>
+                </div>
+                <div class="content-boxes">
+                    <div class="left-column">
+                        <!-- RFID Status Box -->
+                        <div class="rfid-status-bar">
+                            <div class="status-bar-title">
+                                <div>RFID</div>
+                                <div>Status</div>
+                            </div>
+
+                            <!-- RFID-1: Cassette Reader -->
+                            <div class="rfid-card" id="rfid-card-cassette">
+                                <div class="card-title">RFID-1 (Cassette)</div>
+                                <div class="card-status-row">
+                                    <div class="status-column">
+                                        <span class="status-label">Reader</span>
+                                        <span class="status-value">
+                                            <span class="status-indicator" id="rfid-cassette-reader-status">
+                                                <!-- Dynamic SVG will insert here -->
+                                            </span>
+                                            <span class="reader-text-value disconnected"
+                                                id="rfid-cassette-reader-text">Disconnected</span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- RFID-2: FPC Reader -->
+                            <div class="rfid-card" id="rfid-card-fpc">
+                                <div class="card-title">RFID-2 (FPC)</div>
+                                <div class="card-status-row">
+                                    <div class="status-column">
+                                        <span class="status-label">Reader</span>
+                                        <span class="status-value">
+                                            <span class="status-indicator" id="rfid-fpc-reader-status">
+                                                <!-- Dynamic SVG will insert here -->
+                                            </span>
+                                            <span class="reader-text-value disconnected"
+                                                id="rfid-fpc-reader-text">Disconnected</span>
+                                        </span>
+                                    </div>
+                                    <div class="status-column">
+                                        <span class="status-label">Sensor</span>
+                                        <span class="sensor-value off" id="rfid-fpc-sensor-status">OFF</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- RFID-3: Header Reader -->
+                            <div class="rfid-card" id="rfid-card-header">
+                                <div class="card-title">RFID-3 (Header)</div>
+                                <div class="card-status-row">
+                                    <div class="status-column">
+                                        <span class="status-label">Reader</span>
+                                        <span class="status-value">
+                                            <span class="status-indicator" id="rfid-header-reader-status">
+                                                <!-- Dynamic SVG will insert here -->
+                                            </span>
+                                            <span class="reader-text-value disconnected"
+                                                id="rfid-header-reader-text">Disconnected</span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="info-box" id="info-box">
+                            <div class="info-box-title">
+                                <span>WT-Lot Info</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="batch-id">Batch ID:</label>
+                                <span class="display-field"
+                                    id="batch-id-display"><!-- RFID data will populate here --></span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="lot-id">Lot ID:</label>
+                                <span class="display-field"
+                                    id="lot-id-display"><!-- RFID data will populate here --></span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="fpc">FPC:</label>
+                                <span class="display-field"
+                                    id="fpc-display"><!-- RFID data will populate here --></span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="header">Header:</label>
+                                <span class="display-field"
+                                    id="header-display"><!-- RFID data will populate here --></span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="touchdown">Touchdown:</label>
+                                <span class="display-field" id="touchdown-display">
+                                    <span id="touchdown-value"><!-- RFID data will populate here --></span>
+                                    <span id="td-prewarn" class="prewarn-label" title="PM prewarning"
+                                        style="display:none;"></span>
+                                </span>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="PM">PM:</label>
+                                <span class="display-field" id="PM-display"><!-- RFID data will populate here --></span>
+                            </div>
+
+                            <!-- START OF Timer DISPLAY FIELD (Timer section)
+                            <div class="form-group">
+                                <label for="timer">Timer:</label>
+                                <span class="display-field"
+                                    id="timer-display">[RFID data will populate here]</span>
+                            </div>
+                            END OF Timer DISPLAY FIELD (Timer section) -->
+                            <div class="form-group">
+                                <label for="comment">Comment:</label>
+                                <span class="display-field"
+                                    id="comment-display"><!-- RFID data will populate here --></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ========================================== -->
+                    <!-- START OF PMI DISPLAY COLUMN SECTION        -->
+                    <!-- ========================================== -->
+                    <div class="right-column">
+                        <div class="pmi-box">
+                            <div class="pmi-box-title">
+                                <span>PMI</span>
+                            </div>
+
+                            <!-- 1. PMI Status Bar:
+                                 ทำหน้าที่แสดงผลสถานะการประมวลผลกล้อง PMI ปัจจุบัน (WAITING / PASSED / FAILED)
+                                 เปลี่ยนสีพื้นหลังตามสถานะด้วยคลาส: .waiting, .passed, .failed -->
+                            <div class="pmi-status-bar waiting" id="pmi-status-bar">
+                                WAITING
+                            </div>
+
+                            <!-- 2. Dual Viewports Container:
+                                 เป็นกรอบจัดกลุ่มหน้าจอมอนิเตอร์รูปภาพ PMI ทั้งฝั่งซ้ายและฝั่งขวาให้อยู่คู่กันในแนวนอน -->
+                            <div class="pmi-frames-container" id="pmi-frames-container">
+                                <!-- Outer Square Frame 1 (Original / Raw View) -->
+                                <div class="pmi-outer-frame">
+                                    <!-- Inner Square Frame (Slate screen) -->
+                                    <div class="pmi-inner-frame">
+                                        <!-- Mock up PMI: Image element for raw viewport -->
+                                        <img src="/pmi_inspection.png" class="pmi-camera-image grayscale"
+                                            id="pmi-raw-img" style="display: none;">
+
+                                        <!-- Camera grid lines overlay -->
+                                        <div class="camera-grid"></div>
+                                        <!-- Target crosshair in center -->
+                                        <div class="camera-crosshair"></div>
+
+                                        <!-- Blinking REC or Status dot -->
+                                        <div class="camera-status-tag">
+                                            <span class="status-dot pulsing"></span>
+                                            <span>RAW VIEW</span>
+                                        </div>
+
+                                        <!-- Corner digital readouts -->
+                                        <div class="camera-coords top-right">CAM_01</div>
+                                        <div class="camera-coords bottom-right">X: 0.00 Y: 0.00</div>
+
+                                        <!-- Under Construction Sign -->
+                                        <div class="pmi-under-construction" id="pmi-raw-construct">
+                                            <div class="construction-sign">
+                                                <div class="construction-sign-content">
+                                                    <svg viewBox="0 0 24 24" class="construction-icon" fill="none"
+                                                        stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                                        stroke-linejoin="round">
+                                                        <!-- crossed wrench and hammer symbol -->
+                                                        <path
+                                                            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                                                        <line x1="16" y1="5" x2="19" y2="8" />
+                                                    </svg>
+                                                    <div class="sign-text">UNDER</div>
+                                                    <div class="sign-text">CONSTRUCTION</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Outer Square Frame 2 (Analyzed / Processed View) -->
+                                <div class="pmi-outer-frame">
+                                    <!-- Inner Square Frame (Slate screen) -->
+                                    <div class="pmi-inner-frame">
+                                        <!-- Mock up PMI: Image element for processed viewport -->
+                                        <img src="/pmi_inspection.png" class="pmi-camera-image" id="pmi-processed-img"
+                                            style="display: none;">
+                                        <!-- Mock up PMI: Lens overlay for passed/failed highlights -->
+                                        <div class="pmi-highlight-overlay"></div>
+
+                                        <!-- Camera grid lines overlay -->
+                                        <div class="camera-grid"></div>
+                                        <!-- Target crosshair in center -->
+                                        <div class="camera-crosshair"></div>
+
+                                        <!-- Blinking REC or Status dot -->
+                                        <div class="camera-status-tag">
+                                            <span class="status-dot pulsing"></span>
+                                            <span>PROCESSED VIEW</span>
+                                        </div>
+
+                                        <!-- Corner digital readouts -->
+                                        <div class="camera-coords top-right">CAM_02</div>
+                                        <div class="camera-coords bottom-right">X: 0.00 Y: 0.00</div>
+
+                                        <!-- Under Construction Sign -->
+                                        <div class="pmi-under-construction" id="pmi-processed-construct">
+                                            <div class="construction-sign">
+                                                <div class="construction-sign-content">
+                                                    <svg viewBox="0 0 24 24" class="construction-icon" fill="none"
+                                                        stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                                        stroke-linejoin="round">
+                                                        <!-- crossed wrench and hammer symbol -->
+                                                        <path
+                                                            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                                                        <line x1="16" y1="5" x2="19" y2="8" />
+                                                    </svg>
+                                                    <div class="sign-text">UNDER</div>
+                                                    <div class="sign-text">CONSTRUCTION</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 3. Image File Name Display:
+                                 ทำหน้าที่แสดงชื่อไฟล์ของรูปภาพ PMI ที่กำลังประมวลผลปัจจุบันแบบยาวพิเศษ -->
+                            <div class="pmi-filename-box">
+                                <label class="pmi-filename-label">Image File:</label>
+                                <span class="pmi-filename-display"
+                                    id="pmi-filename-display">20260505114649_TR7A9073W25C5_X37Y2_S10_P15_NM_29D5B0FBAA-PC611_300.bmp</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ========================================== -->
+                    <!-- END OF PMI DISPLAY COLUMN SECTION          -->
+                    <!-- ========================================== -->
+
+                </div>
+            </div>
+
+            <!-- START OF AGV VIEW PAGE CONTENT (AGV View code section)
+            <div id="agv" class="page-content">
+                <div class="header">
+                    <h1 class="machine-title">AGV Status & Map</h1>
+                </div>
+
+                [COMMENT: Two-column layout: left = info boxes (stacked), right = map]
+                <div class="agv-layout">
+                    [COMMENT: LEFT: two info boxes stacked]
+                    <div class="agv-left">
+                        <div id="agv1-box" class="info-box disconnected">
+                            <div class="info-box-title"><span>AGV FPC #1</span></div>
+
+                            <div class="form-group"><label>FPC:</label> <span class="display-field"
+                                    id="agv1-fpc-display"></span></div>
+                            <div class="form-group"><label>Header:</label> <span class="display-field"
+                                    id="agv1-header-display"></span></div>
+                            <div class="form-group"><label>PM:</label> <span class="display-field"
+                                    id="agv1-pm-display"></span></div>
+                            <div class="form-group"><label>Timer:</label> <span class="display-field"
+                                    id="agv1-timer-display"></span></div>
+
+                            <div class="reader-status-text" id="agv1-reader-status">Reader Disconnected</div>
+                        </div>
+
+                        <div id="agv2-box" class="info-box disconnected">
+                            <div class="info-box-title"><span>AGV FPC #2</span></div>
+
+                            <div class="form-group"><label>FPC:</label> <span class="display-field"
+                                    id="agv2-fpc-display"></span></div>
+                            <div class="form-group"><label>Header:</label> <span class="display-field"
+                                    id="agv2-header-display"></span></div>
+                            <div class="form-group"><label>PM:</label> <span class="display-field"
+                                    id="agv2-pm-display"></span></div>
+                            <div class="form-group"><label>Timer:</label> <span class="display-field"
+                                    id="agv2-timer-display"></span></div>
+
+                            <div class="reader-status-text" id="agv2-reader-status">Reader Disconnected</div>
+                        </div>
+
+                        <div id="agv3-box" class="info-box disconnected">
+                            <div class="info-box-title"><span>AGV Cassette</span></div>
+
+                            <div class="cassette-slots-container">
+                                [COMMENT: Slot 1 (Left)]
+                                <div class="cassette-slot">
+                                    <div class="slot-title">Slot 1</div>
+                                    <div class="form-group-compact"><label>Cassette:</label> <span
+                                            class="display-field-compact" id="agv3-c1-id"></span></div>
+                                    <div class="form-group-compact"><label>Status:</label> <span
+                                            class="display-field-compact" id="agv3-c1-status"></span></div>
+                                    <div class="form-group-compact"><label>Lot ID:</label> <span
+                                            class="display-field-compact" id="agv3-c1-lot"></span></div>
+                                    <div class="form-group-compact"><label>Batch ID:</label> <span
+                                            class="display-field-compact" id="agv3-c1-batch"></span></div>
+                                </div>
+                                [COMMENT: Slot 2 (Right)]
+                                <div class="cassette-slot">
+                                    <div class="slot-title">Slot 2</div>
+                                    <div class="form-group-compact"><label>Cassette:</label> <span
+                                            class="display-field-compact" id="agv3-c2-id"></span></div>
+                                    <div class="form-group-compact"><label>Status:</label> <span
+                                            class="display-field-compact" id="agv3-c2-status"></span></div>
+                                    <div class="form-group-compact"><label>Lot ID:</label> <span
+                                            class="display-field-compact" id="agv3-c2-lot"></span></div>
+                                    <div class="form-group-compact"><label>Batch ID:</label> <span
+                                            class="display-field-compact" id="agv3-c2-batch"></span></div>
+                                </div>
+                            </div>
+
+                            <div class="reader-status-text" id="agv3-reader-status">Reader Disconnected</div>
+                        </div>
+                    </div>
+
+                    [COMMENT: RIGHT: Map]
+                    <div class="agv-right">
+                        <div id="agv-map" aria-label="AGV Map area">
+                            [COMMENT: Top toolbar]
+                            <div class="bar">
+                                <button class="btn" id="fit">Fit</button>
+                                <button class="btn" id="zoomIn">+</button>
+                                <button class="btn" id="zoomOut">−</button>
+                            </div>
+
+                            [COMMENT: Legend bar (static in HTML, JS will populate)]
+                            <div class="bar" id="legend">
+                                <span class="tag">Scale: <code id="scale">1.00×</code></span>
+                            </div>
+
+                            [COMMENT: Canvas stage]
+                            <div class="stage" id="stage">
+                                <canvas id="map"></canvas>
+                            </div>
+
+                            [COMMENT: (optional) hidden placeholders for POI auto-green]
+                            <div id="poi1-fpc" style="display:none"></div>
+                            <div id="poi1-header" style="display:none"></div>
+                            <div id="poi1-pm" style="display:none"></div>
+                            <div id="poi1-ts" style="display:none"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            END OF AGV VIEW PAGE CONTENT (AGV View code section) -->
+
+            <!-- LOG PAGE -->
+            <section id="log" class="page-content">
+                <div class="header">
+                    <!-- --- [COMMENTED OUT] Old static FPC Log title --- -->
+                    <!-- <h1 class="page-title">Log AVT#55</h1> -->
+                    <!-- --- [NEW] FPC Log title header with ID for dynamic updates --- -->
+                    <h1 class="page-title" id="fpc-log-title">Log AVT#55</h1>
+                </div>
+                <div class="log-container">
+                    <!-- Top toolbar -->
+                    <div class="log-toolbar">
+                        <div class="search-section">
+
+                            <div class="search-group">
+                                <label for="search-lot">Lot ID</label>
+                                <input id="search-lot" class="search-input" type="text" placeholder="e.g. LOT-999">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="search-batch">Batch ID</label>
+                                <input id="search-batch" class="search-input" type="text" placeholder="e.g. BATCH-888">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="search-fpc">FPC ID</label>
+                                <input id="search-fpc" class="search-input" type="text" placeholder="e.g. FPC-1234">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="search-machine">Machine No</label>
+                                <input id="search-machine" class="search-input" type="text" placeholder="e.g. AVT#55">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="search-header">Header ID</label>
+                                <input id="search-header" class="search-input" type="text" placeholder="e.g. HDR-55">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="search-agv">AGV No</label>
+                                <input id="search-agv" class="search-input" type="text" placeholder="e.g. AGV-01">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="search-date">Date</label>
+                                <input id="search-date" class="search-input" type="date">
+                            </div>
+
+                            <button class="search-btn" onclick="searchLogs()">Search</button>
+                            <button class="clear-btn" onclick="clearSearch()">Clear</button>
+                            <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+                        </div>
+
+                        <div class="table-info">
+                            <span>Total Records: <span id="record-count">0</span></span>
+                            <span>Last Updated: <span id="last-updated">-</span></span>
+                        </div>
+                    </div>
+
+                    <!-- The ONLY scrollable area -->
+                    <div class="log-scroll" id="log-scroll">
+                        <table class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>Lot ID</th>
+                                    <th>Batch ID</th>
+                                    <th>FPC ID</th>
+                                    <th>Header ID</th>
+                                    <th>Timestamp</th>
+                                    <th>AGV No</th>
+                                    <th>Machine No</th>
+                                </tr>
+                            </thead>
+                            <tbody id="log-table-body">
+                                <!-- rows injected by script.js -->
+                            </tbody>
+                        </table>
+
+                        <!-- When no data -->
+                        <div id="no-data" class="no-data" style="display:none;">
+                            No logs to display.
+                        </div>
+                    </div>
+
+                    <!-- Footer (kept outside scroll area) -->
+                    <div class="log-footer">
+                        <div id="pagination-controls" class="pagination-controls"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CASSETTE LOG PAGE -->
+            <section id="cassette-log" class="page-content">
+                <div class="header">
+                    <!-- --- [COMMENTED OUT] Old static Cassette Log title --- -->
+                    <!-- <h1 class="page-title">Log Cassette AVT#55</h1> -->
+                    <!-- --- [NEW] Cassette Log title header with ID for dynamic updates --- -->
+                    <h1 class="page-title" id="cassette-log-title">Log PMI AVT#55</h1>
+                </div>
+                <div class="log-container">
+                    <!-- Top toolbar -->
+                    <div class="log-toolbar">
+                        <div class="search-section">
+
+                            <div class="search-group">
+                                <label for="cass-search-id">Cassette ID</label>
+                                <input id="cass-search-id" class="search-input" type="text">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="cass-search-lot">Lot ID</label>
+                                <input id="cass-search-lot" class="search-input" type="text">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="cass-search-batch">Batch ID</label>
+                                <input id="cass-search-batch" class="search-input" type="text">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="cass-search-machine">Machine No</label>
+                                <input id="cass-search-machine" class="search-input" type="text">
+                            </div>
+
+                            <div class="search-group">
+                                <label for="cass-search-date">Date</label>
+                                <input id="cass-search-date" class="search-input" type="date">
+                            </div>
+
+                            <button class="search-btn" onclick="searchCassetteLogs()">Search</button>
+                            <button class="clear-btn" onclick="clearCassetteSearch()">Clear</button>
+                            <button class="export-btn" onclick="exportCassetteCSV()">Export CSV</button>
+                        </div>
+
+                        <div class="table-info">
+                            <span>Total Records: <span id="cass-record-count">0</span></span>
+                            <span>Last Updated: <span id="cass-last-updated">-</span></span>
+                        </div>
+                    </div>
+
+                    <!-- Scrollable table area -->
+                    <div class="log-scroll" id="cass-log-scroll">
+                        <table class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>Cassette ID</th>
+                                    <th>Machine Status</th>
+                                    <th>Lot ID</th>
+                                    <th>Batch ID</th>
+                                    <th>Last Cleaning</th>
+                                    <th>Next Cleaning</th>
+                                    <th>Timestamp</th>
+                                    <th>Machine No</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cass-log-table-body">
+                                <!-- rows injected by script.js -->
+                            </tbody>
+                        </table>
+
+                        <!-- When no data -->
+                        <div id="cass-no-data" class="no-data" style="display:none;">
+                            No logs to display.
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="log-footer">
+                        <div id="cass-pagination-controls" class="pagination-controls"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SETTINGS PAGE -->
+            <div id="setting" class="page-content">
+                <div class="settings-content">
+                    <!-- Login Screen -->
+                    <div class="login-container" id="loginScreen">
+                        <div class="login-logo">
+                            <img src="NXP_logo.png" alt="Company Logo">
+                            <div class="company-name">NXP Semiconductors</div>
+                            <!-- --- [COMMENTED OUT] Old project name --- -->
+                            <!-- <div class="project-name">RFID Prober Project - AGV FPC#2</div> -->
+                            <!-- --- [NEW] Updated project name to FPC & Cassette --- -->
+                            <div class="project-name">RFID Prober Project - FPC & Cassette</div>
+                        </div>
+
+                        <div class="login-form">
+                            <h2 class="login-title">Settings Access</h2>
+
+                            <div class="input-group">
+                                <label for="employeeId">Employee ID:</label>
+                                <input type="text" id="employeeId" placeholder="Enter your Employee ID"
+                                    autocomplete="off">
+                            </div>
+
+                            <div class="error-message" id="errorMessage">
+                                Invalid Employee ID. Please try again.
+                            </div>
+
+                            <div class="button-group">
+                                <button class="btn btn-secondary" onclick="goBack()">Back</button>
+                                <button class="btn btn-primary" onclick="submitLogin()">Submit</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settings Screen (Hidden by default) -->
+                    <div class="settings-container" id="settingsScreen">
+                        <div class="settings-header">
+                            <h1 class="settings-title">System Settings</h1>
+                            <!-- --- [COMMENTED OUT] Old settings screen subtitle --- -->
+                            <!-- <p class="settings-subtitle">AGV FPC#2 Configuration</p> -->
+                            <!-- --- [NEW] Updated settings screen subtitle to FPC & Cassette --- -->
+                            <p class="settings-subtitle">FPC & Cassette Configuration</p>
+                        </div>
+
+                        <div class="settings-grid">
+                            <button id="btn-reset-ip" class="reset-btn admin-only" onclick="resetIPAddress()">Reset IP
+                                Address</button>
+                            <button id="btn-reset-logs" class="reset-btn admin-only" onclick="resetLogs()">Reset
+                                Logs</button>
+                            <button id="btn-system-reset" class="reset-btn admin-only" onclick="systemReset()">System
+                                Reset</button>
+                            <button id="btn-reset-rfid" class="reset-btn" onclick="resetRFID()">Reset RFID
+                                Settings</button>
+                        </div>
+
+                        <!-- --- [NEW] Machine Name Configuration Section --- -->
+                        <!-- This section allows authenticated administrators to rename the machine dynamically -->
+                        <div class="machine-name-section admin-only">
+                            <label for="machine-name-input">Machine Name:</label>
+                            <div class="machine-name-input-wrapper">
+                                <input type="text" id="machine-name-input" placeholder="Enter new machine name">
+                                <button class="btn btn-primary" onclick="updateMachineName()">Save Name</button>
+                            </div>
+                        </div>
+
+                        <div style="text-align:center; margin-top: 20px;">
+                            <button class="btn btn-primary" onclick="openSettingsLog()">Settings Log</button>
+                        </div>
+
+                        <div class="logout-section">
+                            <button class="btn btn-secondary" onclick="logout()">Logout from Settings</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ABOUT PAGE -->
+            <div id="about" class="page-content">
+                <div class="about-content">
+                    <div class="about-container">
+                        <h1 class="about-title">System Information</h1>
+                        <table id="system-info-table" class="info-table">
+                            <tbody>
+                                <tr>
+                                    <td><strong>Reader Model:</strong></td>
+                                    <td id="model">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Serial Port:</strong></td>
+                                    <td id="port">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Baud Rate:</strong></td>
+                                    <td id="baud">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Status:</strong></td>
+                                    <td id="status">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Uptime:</strong></td>
+                                    <td id="uptime">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Database Status:</strong></td>
+                                    <td id="db_status">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Database:</strong></td>
+                                    <td id="database">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Logs Today:</strong></td>
+                                    <td id="log_count">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Last Backup File:</strong></td>
+                                    <td id="last_backup">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Local IP:</strong></td>
+                                    <td id="ip">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Prober IP:</strong></td>
+                                    <td id="prober_ip">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Python Version:</strong></td>
+                                    <td id="pyver">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Flask Version:</strong></td>
+                                    <td id="flaskver">-</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>OS:</strong></td>
+                                    <td id="os">-</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Settings Log Modal -->
+    <div id="settings-log-modal" class="modal" style="display:none;">
+        <div class="modal-dialog">
+            <div class="modal-header pm-warning-header">
+                <h3>Settings Log</h3>
+                <button class="modal-close" onclick="closeSettingsLog()">×</button>
+            </div>
+            <div class="modal-toolbar">
+                <input id="syslog-emp" class="search-input" placeholder="Employee ID">
+                <input id="syslog-action" class="search-input" placeholder="Action contains...">
+                <input id="syslog-date" class="search-input" type="date">
+                <button class="search-btn" onclick="loadSettingsLog(1)">Search</button>
+                <button class="clear-btn" onclick="clearSettingsLogFilters()">Clear</button>
+            </div>
+            <div class="modal-body">
+                <table class="log-table">
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Action</th>
+                            <th>Timestamp</th>
+                            <th>IP</th>
+                        </tr>
+                    </thead>
+                    <tbody id="syslog-body"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <div id="syslog-pagination" class="pagination-controls"></div>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="script.js"></script>
+
+    <div id="mismatch-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mm-title"
+        style="display:none">
+        <div class="modal-content">
+            <h2 id="mm-title">FPC / Header Mismatch</h2>
+            <p id="mm-text"></p>
+            <div class="modal-actions">
+                <button class="btn btn-primary" id="mm-ack">OK</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        // 1 m = 20 px; origin in meters (you can tune later)
+        window.PPM = 20;
+        window.ORIGIN_M = { x: 0, y: 0 };
+
+        // Two robots appear on the legend & get colored icons
+        window.ROBOTS_CFG = [
+            { "name": "Robot FPC no.1", "color": "#00e0ff" },
+            { "name": "Robot FPC no.2", "color": "#ff6b6b" }
+        ];
+
+        // Assets (place these under your /static/)
+        window.FLOORPLAN_URL = "/static/map_image_new.png";
+        window.AGV_ICONS = {
+            "#00e0ff": "/static/agv_blue.png",
+            "#ff6b6b": "/static/agv_red.png"
+        };
+    </script>
+
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/agv-map.js"></script>
+
+    <!-- MISMATCH Warning Modal
+<div id="pm-warning" class="modal" style="display:none;">
+  <div class="modal-dialog">
+    <div class="modal-header pm-warning-header">
+    <h3> Maintenance Required </h3>
+    <button class="modal-close" onclick="hidePmWarning()">×</button>
+    </div>
+    <div class="modal-body pm-warning-body">
+    <div class="pm-warning-icon">❌</div>
+    <div class="pm-warning-title">Mismatch FPC with Header</div>
+    <div class="pm-warning-text">
+        <p>Please <strong> INFORMED </strong> the store before starting a new lot.</p>
+        <p>Please wait for system to re-matching</p>
+    </div>
+    <div id="pm-warning-detail" class="pm-warning-detail"></div>
+    </div>
+    <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="hidePmWarning()">OK</button>
+    </div>
+  </div>
+</div> -->
+
+    <!-- PM Warning Modal -->
+    <div id="pm-warning" class="modal" style="display:none;">
+        <div class="modal-dialog">
+            <div class="modal-header pm-warning-header">
+                <h3> Maintenance Required </h3>
+                <button class="modal-close" onclick="hidePmWarning()">×</button>
+            </div>
+            <div class="modal-body pm-warning-body">
+                <div class="pm-warning-icon">⚠️</div>
+                <div class="pm-warning-title">Touchdown Limit Exceeded</div>
+                <div class="pm-warning-text">
+                    <p>PM is <strong>REQUIRED</strong> before starting a new lot.</p>
+                    <p>Please remove FPC and Header from Prober Machine.</p>
+                </div>
+                <div id="pm-warning-detail" class="pm-warning-detail"></div>
+            </div>
+            <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="hidePmWarning()">OK</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- PM Prewarning (smaller, subtle) -->
+    <div id="pm-prewarn" class="modal" style="display:none;">
+        <div class="modal-dialog prewarn-dialog">
+            <div class="modal-header prewarn-header">
+                <h3>PM Warning</h3>
+                <button class="modal-close" onclick="hidePmPrewarning()">×</button>
+            </div>
+            <div class="modal-body prewarn-body">
+                <h2 class="prewarn-title">Caution</h2>
+                <!-- <span>Touchdown Nearing Limit</span> -->
+                <div id="pm-prewarn-detail" class="prewarn-detail"></div>
+            </div>
+            <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="hidePmPrewarning()">OK</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+
+</html>
