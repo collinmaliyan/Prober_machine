@@ -1775,48 +1775,47 @@ class RFIDApp:
                 action = request.args.get('action')
                 date = request.args.get('date')
 
-                # --- [NEW] Mockup Mode for System Log ---
-                # If MOCKUP_MODE is enabled, return simulated system logs with filtering.
-                # This simulates DB queries when MySQL is offline.
-                if getattr(Config, 'MOCKUP_MODE', False):
-                    fake_logs = [
-                        (1, 'ADMIN', 'login', datetime.now() - timedelta(minutes=2), '127.0.0.1'),
-                        (2, 'ADMIN', 'reset_ip_address', datetime.now() - timedelta(minutes=5), '127.0.0.1'),
-                        (3, '13991628', 'login', datetime.now() - timedelta(minutes=12), '127.0.0.1'),
-                        (4, '13991628', 'reset_rfid_settings', datetime.now() - timedelta(minutes=15), '127.0.0.1'),
-                        (5, 'ADMIN', 'logout', datetime.now() - timedelta(hours=1), '127.0.0.1'),
-                        (6, 'ADMIN', 'login', datetime.now() - timedelta(hours=1, minutes=2), '127.0.0.1'),
-                        (7, '13989472', 'reset_logs', datetime.now() - timedelta(days=1), '127.0.0.1'),
-                    ]
-                    
-                    filtered = []
-                    for r in fake_logs:
-                        if employee_id and employee_id.lower() not in r[1].lower(): continue
-                        if action and action.lower() not in r[2].lower(): continue
-                        if date and r[3].strftime('%Y-%m-%d') != date: continue
-                        filtered.append(r)
-                        
-                    total = len(filtered)
-                    page_size = Config.PAGE_SIZE
-                    pages = (total + page_size - 1) // page_size
-                    offset = (page - 1) * page_size
-                    rows = filtered[offset : offset + page_size]
-                    
-                    logs = [{
-                        "id": r[0],
-                        "employeeId": r[1],
-                        "action": r[2],
-                        "timestamp": r[3].strftime("%Y-%m-%d %H:%M:%S"),
-                        "ip": r[4]
-                    } for r in rows]
-                    
-                    return jsonify({
-                        "status": "success",
-                        "logs": logs,
-                        "total": total,
-                        "pages": pages,
-                        "page": page
-                    })
+                # --- [COMMENTED OUT] Mock up Data of Setting Log (Disabled as requested) ---
+                # if getattr(Config, 'MOCKUP_MODE', False):
+                #     actions = ['login', 'logout', 'reset_ip_address', 'reset_logs', 'system_reset', 'reset_rfid_settings', 'update_machine_name']
+                #     employees = ['ADMIN', '13991628', '13989472', '14001234']
+                #     from datetime import datetime, timedelta
+                #     fake_logs = []
+                #     # Generate 30 logs for testing pagination
+                #     for i in range(1, 31):
+                #         emp = employees[i % len(employees)]
+                #         act = actions[i % len(actions)]
+                #         dt = datetime.now() - timedelta(minutes=i * 10)
+                #         fake_logs.append((i, emp, act, dt, '127.0.0.1'))
+                #     
+                #     filtered = []
+                #     for r in fake_logs:
+                #         if employee_id and employee_id.lower() not in r[1].lower(): continue
+                #         if action and action.lower() not in r[2].lower(): continue
+                #         if date and r[3].strftime('%Y-%m-%d') != date: continue
+                #         filtered.append(r)
+                #         
+                #     total = len(filtered)
+                #     page_size = getattr(Config, 'PAGE_SIZE', 15)
+                #     pages = (total + page_size - 1) // page_size
+                #     offset = (page - 1) * page_size
+                #     rows = filtered[offset : offset + page_size]
+                #     
+                #     logs = [{
+                #         "id": r[0],
+                #         "employeeId": r[1],
+                #         "action": r[2],
+                #         "timestamp": r[3].strftime("%Y-%m-%d %H:%M:%S"),
+                #         "ip": r[4]
+                #     } for r in rows]
+                #     
+                #     return jsonify({
+                #         "status": "success",
+                #         "logs": logs,
+                #         "total": total,
+                #         "pages": pages,
+                #         "page": page
+                #     })
 
                 # --- [COMMENTED OUT] Real database audit logs query ---
                 # data = DatabaseManager.get_system_logs(page, Config.PAGE_SIZE, employee_id, action, date)

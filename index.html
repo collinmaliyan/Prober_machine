@@ -83,6 +83,8 @@
                     </svg>
                     <span>Log RFID</span>
                 </button>
+                <!-- --- [COMMENTED OUT] Log PMI button (Temporarily disabled as requested) --- -->
+                <!--
                 <button class="nav-button" onclick="switchPage('cassette-log', this)">
                     <svg viewBox="0 0 24 24">
                         <rect width="18" height="18" x="3" y="3" rx="2" />
@@ -97,6 +99,7 @@
                     </svg>
                     <span>Log PMI</span>
                 </button>
+                -->
                 <button class="nav-button" onclick="switchPage('setting', this)">
                     <svg viewBox="0 0 24 24">
                         <circle cx="12" cy="12" r="3" />
@@ -804,29 +807,47 @@
     <!-- Settings Log Modal -->
     <div id="settings-log-modal" class="modal" style="display:none;">
         <div class="modal-dialog">
-            <div class="modal-header pm-warning-header">
-                <h3>Settings Log</h3>
-                <button class="modal-close" onclick="closeSettingsLog()">×</button>
+            <div class="modal-header" style="justify-content: center; position: relative;">
+                <h3 class="settings-log-title">Settings Log</h3>
+                <button class="modal-close" onclick="closeSettingsLog()" style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%);">×</button>
             </div>
             <div class="modal-toolbar">
-                <input id="syslog-emp" class="search-input" placeholder="Employee ID">
-                <input id="syslog-action" class="search-input" placeholder="Action contains...">
-                <input id="syslog-date" class="search-input" type="date">
-                <button class="search-btn" onclick="loadSettingsLog(1)">Search</button>
-                <button class="clear-btn" onclick="clearSettingsLogFilters()">Clear</button>
+                <div class="search-section" style="width: 100%; margin-bottom: 8px;">
+                    <div class="search-group">
+                        <label for="syslog-emp">Employee ID</label>
+                        <input id="syslog-emp" class="search-input" placeholder="Employee ID">
+                    </div>
+                    <div class="search-group">
+                        <label for="syslog-action">Action contains...</label>
+                        <input id="syslog-action" class="search-input" placeholder="Action contains...">
+                    </div>
+                    <div class="search-group">
+                        <label for="syslog-date">Date</label>
+                        <input id="syslog-date" class="search-input" type="date">
+                    </div>
+                    <button class="clear-btn" onclick="clearSettingsLogFilters()">Clear</button>
+                    
+                    <button class="search-btn" onclick="loadSettingsLog(1)" style="grid-column: span 4; margin-top: 8px; width: 100%;">Search</button>
+                </div>
+                
+                <div class="table-info" style="width: 100%; border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
+                    <span>Total Records: <span id="syslog-record-count">0</span></span>
+                </div>
             </div>
             <div class="modal-body">
-                <table class="log-table">
-                    <thead>
-                        <tr>
-                            <th>Employee</th>
-                            <th>Action</th>
-                            <th>Timestamp</th>
-                            <th>IP</th>
-                        </tr>
-                    </thead>
-                    <tbody id="syslog-body"></tbody>
-                </table>
+                <div class="log-scroll" style="height: 100%; margin-top: 0;">
+                    <table class="log-table">
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Action</th>
+                                <th>Timestamp</th>
+                                <th>IP</th>
+                            </tr>
+                        </thead>
+                        <tbody id="syslog-body"></tbody>
+                    </table>
+                </div>
             </div>
             <div class="modal-footer">
                 <div id="syslog-pagination" class="pagination-controls"></div>

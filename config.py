@@ -76,7 +76,7 @@ class Config:
 
     # ——— Auth / UI ———
     ADMIN_IDS = ["ADMIN"]
-    PAGE_SIZE = 50
+    PAGE_SIZE = 15
     # present in Second_header_wo_error.py only; safe to keep here
     SUPPRESS_UI_WARNINGS = True
 

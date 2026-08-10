@@ -1118,23 +1118,80 @@ function updateLastUpdated() {
   document.getElementById('last-updated').textContent = timestamp;
 }
 
-function renderPagination(current, totalPages) {
-  const container = document.getElementById('pagination-controls');
+// --- Shared Smart Pagination Builder ---
+function buildSmartPagination(container, current, totalPages, onPageClick) {
   if (!container) return;
   container.innerHTML = '';
   if (totalPages <= 1) return;
 
-  for (let i = 1; i <= totalPages; i++) {
+  // Previous Page Button
+  const prevBtn = document.createElement('button');
+  prevBtn.textContent = '‹';
+  prevBtn.className = 'page-btn prev-next';
+  if (current === 1) prevBtn.disabled = true;
+  prevBtn.onclick = () => onPageClick(current - 1);
+  container.appendChild(prevBtn);
+
+  // Helper to create page number button
+  function addPageBtn(i) {
     const btn = document.createElement('button');
     btn.textContent = i;
     btn.className = 'page-btn';
     if (i === current) btn.classList.add('active');
-    btn.onclick = () => {
-      currentPage = i;
-      loadLogs();
-    };
+    btn.onclick = () => onPageClick(i);
     container.appendChild(btn);
   }
+
+  // Helper to create ellipsis (...)
+  function addEllipsis() {
+    const span = document.createElement('span');
+    span.textContent = '...';
+    span.className = 'pagination-ellipsis';
+    span.style.padding = '0 6px';
+    span.style.color = '#666';
+    span.style.fontSize = '12px';
+    span.style.display = 'inline-block';
+    container.appendChild(span);
+  }
+
+  // Always show Page 1
+  addPageBtn(1);
+
+  let start = Math.max(2, current - 1);
+  let end = Math.min(totalPages - 1, current + 1);
+
+  if (current > 3) {
+    addEllipsis();
+  }
+
+  for (let i = start; i <= end; i++) {
+    addPageBtn(i);
+  }
+
+  if (current < totalPages - 2) {
+    addEllipsis();
+  }
+
+  // Always show Last Page if totalPages > 1
+  if (totalPages > 1) {
+    addPageBtn(totalPages);
+  }
+
+  // Next Page Button
+  const nextBtn = document.createElement('button');
+  nextBtn.textContent = '›';
+  nextBtn.className = 'page-btn prev-next';
+  if (current === totalPages) nextBtn.disabled = true;
+  nextBtn.onclick = () => onPageClick(current + 1);
+  container.appendChild(nextBtn);
+}
+
+function renderPagination(current, totalPages) {
+  const container = document.getElementById('pagination-controls');
+  buildSmartPagination(container, current, totalPages, (page) => {
+    currentPage = page;
+    loadLogs();
+  });
 }
 
 function exportCSV() {
@@ -1347,21 +1404,10 @@ function updateCassetteLastUpdated() {
 
 function renderCassettePagination(current, totalPages) {
   const container = document.getElementById('cass-pagination-controls');
-  if (!container) return;
-  container.innerHTML = '';
-  if (totalPages <= 1) return;
-
-  for (let i = 1; i <= totalPages; i++) {
-    const btn = document.createElement('button');
-    btn.textContent = i;
-    btn.className = 'page-btn';
-    if (i === current) btn.classList.add('active');
-    btn.onclick = () => {
-      currentCassettePage = i;
-      loadCassetteLogs();
-    };
-    container.appendChild(btn);
-  }
+  buildSmartPagination(container, current, totalPages, (page) => {
+    currentCassettePage = page;
+    loadCassetteLogs();
+  });
 }
 
 function exportCassetteCSV() {
@@ -1715,6 +1761,13 @@ function loadSettingsLog(page = 1) {
     .then(r => r.json())
     .then(data => {
       if (data.status !== 'success') return;
+      
+      // Update record count display
+      const countEl = document.getElementById('syslog-record-count');
+      if (countEl) {
+        countEl.textContent = data.total || 0;
+      }
+
       const tb = document.getElementById('syslog-body');
       if (!tb) return;
       if (!data.logs || data.logs.length === 0) {
@@ -1730,14 +1783,9 @@ function loadSettingsLog(page = 1) {
       }
       // pagination
       const pg = document.getElementById('syslog-pagination');
-      pg.innerHTML = '';
-      for (let i = 1; i <= data.pages; i++) {
-        const b = document.createElement('button');
-        b.className = 'page-btn' + (i === data.page ? ' active' : '');
-        b.textContent = i;
-        b.onclick = () => loadSettingsLog(i);
-        pg.appendChild(b);
-      }
+      buildSmartPagination(pg, data.page, data.pages, (page) => {
+        loadSettingsLog(page);
+      });
     })
     .catch(() => { });
 }
