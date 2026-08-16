@@ -39,7 +39,7 @@ class Config:
     # --- [NEW] Mockup Mode Toggle ---
     # Set this to True to enable mockup/presentation mode (simulated data & AGVs).
     # Set this to False for actual production hardware/database connection mode.
-    MOCKUP_MODE = True
+    MOCKUP_MODE = False
 
     DB_CONFIG = {
         'host': 'localhost',

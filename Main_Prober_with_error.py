@@ -40,13 +40,76 @@ def fetch_pose(robot: dict) -> dict:
 # DATABASE UTILITIES
 # =============================================================================
 
+class SQLiteCursorWrapper:
+    def __init__(self, sqlite_cursor):
+        self.cursor = sqlite_cursor
+
+    def execute(self, sql, params=()):
+        sql_converted = sql.replace("%s", "?")
+        if params is None: params = ()
+        return self.cursor.execute(sql_converted, params)
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+    def close(self):
+        self.cursor.close()
+
+class SQLiteConnWrapper:
+    def __init__(self, sqlite_conn):
+        self.conn = sqlite_conn
+
+    def cursor(self):
+        return SQLiteCursorWrapper(self.conn.cursor())
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
 class DatabaseManager:
     """Handles database connections and operations"""
     
+    _MYSQL_ONLINE = None
+    _LAST_MYSQL_CHECK = 0
+
+    @staticmethod
+    def is_mysql_available():
+        now = time.time()
+        if DatabaseManager._MYSQL_ONLINE is not None and (now - DatabaseManager._LAST_MYSQL_CHECK < 5.0):
+            return DatabaseManager._MYSQL_ONLINE
+
+        host = Config.DB_CONFIG.get('host', 'localhost')
+        port = int(Config.DB_CONFIG.get('port', 3306))
+        try:
+            s = socket.create_connection((host, port), timeout=0.05)
+            s.close()
+            DatabaseManager._MYSQL_ONLINE = True
+        except Exception:
+            DatabaseManager._MYSQL_ONLINE = False
+            
+        DatabaseManager._LAST_MYSQL_CHECK = now
+        return DatabaseManager._MYSQL_ONLINE
+
     @staticmethod
     def get_connection():
-        """Get database connection"""
-        return mysql.connector.connect(**Config.DB_CONFIG)
+        """Get database connection (Instant socket check for MariaDB, zero-delay SQLite fallback)"""
+        if DatabaseManager.is_mysql_available():
+            try:
+                return mysql.connector.connect(**Config.DB_CONFIG)
+            except Exception:
+                DatabaseManager._MYSQL_ONLINE = False
+
+        import sqlite3
+        for db_name in ["RFID_database_SQLite.db", "rfid_proj.db"]:
+            db_path = os.path.join(os.path.dirname(__file__), db_name)
+            if os.path.exists(db_path):
+                return SQLiteConnWrapper(sqlite3.connect(db_path))
+        raise Exception("No valid database connection available")
     
     @staticmethod
     def store_fpc_log(fpc_id, timestamp):
@@ -154,15 +217,15 @@ class DatabaseManager:
             filters = []
             params = []
 
-            if employee_id:
+            if employee_id and str(employee_id).strip():
                 filters.append("employee_id LIKE %s")
-                params.append(f"%{employee_id}%")
-            if action:
+                params.append(f"%{str(employee_id).strip()}%")
+            if action and str(action).strip():
                 filters.append("action LIKE %s")
-                params.append(f"%{action}%")
-            if date:
+                params.append(f"%{str(action).strip()}%")
+            if date and str(date).strip():
                 filters.append("DATE(ts) = %s")
-                params.append(date)
+                params.append(str(date).strip())
 
             where_clause = "WHERE " + " AND ".join(filters) if filters else ""
             offset = (page - 1) * page_size
@@ -186,7 +249,7 @@ class DatabaseManager:
                 "id": r[0],
                 "employeeId": r[1],
                 "action": r[2],
-                "timestamp": r[3].strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": r[3].strftime("%Y-%m-%d %H:%M:%S") if hasattr(r[3], 'strftime') else str(r[3]),
                 "ip": r[4]
             } for r in rows]
 
@@ -473,12 +536,12 @@ class DatabaseManager:
 
     @staticmethod
     def store_cassette_log(cassette_id, machine_status, lot_id, batch_id, last_cleaning, next_cleaning, timestamp):
-        """Insert a scan record into cassette_scan_log"""
+        """Insert a scan record into cassette_reader_log"""
         try:
             conn = DatabaseManager.get_connection()
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO cassette_scan_log 
+                INSERT INTO cassette_reader_log 
                     (cassette_id, machine_status, lot_id, batch_id, last_cleaning, next_cleaning, machine_no, timestamp, synced)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
             """, (cassette_id, machine_status, lot_id, batch_id, last_cleaning, next_cleaning, Config.MACHINE_NO, timestamp))
@@ -487,7 +550,7 @@ class DatabaseManager:
             print(f"[CASSETTE LOG STORED] {cassette_id} at {timestamp}")
             return True
         except Exception as e:
-            print(f"[ERROR] DB insert (cassette_scan_log): {e}")
+            print(f"[ERROR] DB insert (cassette_reader_log): {e}")
             return False
 
 
@@ -569,11 +632,11 @@ def push_scan_logs_to_main():
                 "batch_id": r[5],
                 "lot_id": r[6], 
                 "touchdown": r[7],
-                "latest_pm": r[8].strftime('%Y-%m-%d') if r[8] else None,
+                "latest_pm": (r[8].strftime('%Y-%m-%d') if hasattr(r[8], 'strftime') else str(r[8])) if r[8] else None,
                 "comment": r[9],
                 "agv_no": r[10],
                 "machine_no": r[11],
-                "timestamp": r[12].strftime('%Y-%m-%d %H:%M:%S') if r[12] else None
+                "timestamp": (r[12].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[12], 'strftime') else str(r[12])) if r[12] else None
             })
         
         # Send to main server
@@ -1751,17 +1814,6 @@ class RFIDApp:
                 if not employee_id or not action:
                     return jsonify({"status": "error", "message": "employee_id and action are required"}), 400
                 
-                # --- [NEW] Bypass DB writing in Mockup Mode ---
-                # If mockup mode is active, print the logged event to console and return success
-                # instead of attempting to write to the offline MySQL DB.
-                if getattr(Config, 'MOCKUP_MODE', False):
-                    print(f"[MOCK SYSLOG] Employee {employee_id} performed action: {action} (IP: {ip})")
-                    return jsonify({"status": "success"})
-
-                # --- [COMMENTED OUT] Real hardware/DB log store ---
-                # ok = DatabaseManager.store_system_log(employee_id, action, ip)
-                # return jsonify({"status": "success" if ok else "error"})
-
                 ok = DatabaseManager.store_system_log(employee_id, action, ip)
                 return jsonify({"status": "success" if ok else "error"})
             except Exception as e:
@@ -1927,10 +1979,23 @@ class RFIDApp:
             session["employee_id"] = employee_id
             session["role"] = role
 
+            # --- [NEW] Record login event to system_log database ---
+            try:
+                ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+                DatabaseManager.store_system_log(employee_id, "login", ip_addr)
+            except Exception as e:
+                print(f"[SYSTEM LOG ERROR] login: {e}")
+
             return jsonify({"ok": True, "employeeId": employee_id, "role": role})
         
         @self.app.post("/api/logout")
         def api_logout():
+            emp_id = session.get("employee_id", "UNKNOWN")
+            try:
+                ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+                DatabaseManager.store_system_log(emp_id, "logout", ip_addr)
+            except Exception as e:
+                print(f"[SYSTEM LOG ERROR] logout: {e}")
             session.clear()
             return jsonify({"ok": True})
 
@@ -1941,26 +2006,44 @@ class RFIDApp:
         @self.app.post("/settings/reset-ip")
         @self.admin_required
         def reset_ip():
-            # TODO: call into your service layer to perform the action
-            # e.g., rfid.network_service.reset_ip()
+            emp_id = session.get("employee_id", "ADMIN")
+            try:
+                ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+                DatabaseManager.store_system_log(emp_id, "reset_ip_address", ip_addr)
+            except Exception as e:
+                print(f"[SYSTEM LOG ERROR] reset_ip: {e}")
             return jsonify({"ok": True, "message": "IP reset triggered"})
 
         @self.app.post("/settings/reset-logs")
         @self.admin_required
         def reset_logs():
-            # TODO: rfid.logging_service.reset_logs()
+            emp_id = session.get("employee_id", "ADMIN")
+            try:
+                ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+                DatabaseManager.store_system_log(emp_id, "reset_logs", ip_addr)
+            except Exception as e:
+                print(f"[SYSTEM LOG ERROR] reset_logs: {e}")
             return jsonify({"ok": True, "message": "Log reset triggered"})
 
         @self.app.post("/settings/system-reset")
         @self.admin_required
         def system_reset():
-            # TODO: rfid.system_service.reset()
+            emp_id = session.get("employee_id", "ADMIN")
+            try:
+                ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+                DatabaseManager.store_system_log(emp_id, "system_reset", ip_addr)
+            except Exception as e:
+                print(f"[SYSTEM LOG ERROR] system_reset: {e}")
             return jsonify({"ok": True, "message": "System reset triggered"})
 
         @self.app.post("/settings/reset-rfid")
         def reset_rfid():
-            # Open to all logged-in users (still requires successful /api/login first)
-            # TODO: rfid.rfid_service.reset_settings()
+            emp_id = session.get("employee_id", "ADMIN")
+            try:
+                ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+                DatabaseManager.store_system_log(emp_id, "reset_rfid_settings", ip_addr)
+            except Exception as e:
+                print(f"[SYSTEM LOG ERROR] reset_rfid: {e}")
             return jsonify({"ok": True, "message": "RFID settings reset"})
 
         @self.app.get("/whoami")
@@ -2768,7 +2851,7 @@ class RFIDApp:
                 "fpcId":     r[1],
                 "headerId":  r[2],
                 "headerName": r[3],
-                "timestamp": r[4].strftime('%Y-%m-%d %H:%M:%S') if r[4] else None,
+                "timestamp": (r[4].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[4], 'strftime') else str(r[4])) if r[4] else None,
                 "agvNo":     r[5],
                 "machineNo": r[6],
                 "batchId":   r[7],
@@ -2895,7 +2978,7 @@ class RFIDApp:
             logs = [{
                 "fpcId":    r[1],
                 "headerId": r[2],
-                "timestamp": r[3].strftime('%Y-%m-%d %H:%M:%S') if r[3] else None,
+                "timestamp": (r[3].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[3], 'strftime') else str(r[3])) if r[3] else None,
                 "agvNo":    r[4],
                 "machineNo":r[5],
                 "batchId":  r[6],
@@ -2913,7 +2996,7 @@ class RFIDApp:
             return jsonify({"status": "error", "message": str(e)})
 
     def _get_cassette_logs(self):
-        """Get paginated logs from cassette_scan_log table."""
+        """Get paginated logs from cassette_reader_log table."""
         try:
             page = int(request.args.get('page', 1))
             offset = (page - 1) * Config.PAGE_SIZE
@@ -2951,14 +3034,14 @@ class RFIDApp:
             cur = conn.cursor()
 
             # Get total rows count
-            cur.execute("SELECT COUNT(*) FROM cassette_scan_log")
+            cur.execute("SELECT COUNT(*) FROM cassette_reader_log")
             total = cur.fetchone()[0]
             total_pages = (total + Config.PAGE_SIZE - 1) // Config.PAGE_SIZE
 
             # Get paginated rows
             cur.execute("""
                 SELECT id, cassette_id, machine_status, lot_id, batch_id, last_cleaning, next_cleaning, timestamp, machine_no
-                FROM cassette_scan_log
+                FROM cassette_reader_log
                 ORDER BY timestamp DESC
                 LIMIT %s OFFSET %s
             """, (Config.PAGE_SIZE, offset))
@@ -2972,9 +3055,9 @@ class RFIDApp:
                 "machineStatus":  r[2],
                 "lotId":          r[3],
                 "batchId":        r[4],
-                "lastCleaning":   r[5].strftime('%Y-%m-%d %H:%M:%S') if r[5] else None,
-                "nextCleaning":   r[6].strftime('%Y-%m-%d %H:%M:%S') if r[6] else None,
-                "timestamp":      r[7].strftime('%Y-%m-%d %H:%M:%S') if r[7] else None,
+                "lastCleaning":   (r[5].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[5], 'strftime') else str(r[5])) if r[5] else None,
+                "nextCleaning":   (r[6].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[6], 'strftime') else str(r[6])) if r[6] else None,
+                "timestamp":      (r[7].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[7], 'strftime') else str(r[7])) if r[7] else None,
                 "machineNo":      r[8],
             } for r in rows]
 
@@ -3068,13 +3151,13 @@ class RFIDApp:
             conn = DatabaseManager.get_connection()
             cur = conn.cursor()
 
-            cur.execute(f"SELECT COUNT(*) FROM cassette_scan_log {where}", tuple(params))
+            cur.execute(f"SELECT COUNT(*) FROM cassette_reader_log {where}", tuple(params))
             total = cur.fetchone()[0]
             total_pages = (total + Config.PAGE_SIZE - 1) // Config.PAGE_SIZE
 
             cur.execute(f"""
                 SELECT id, cassette_id, machine_status, lot_id, batch_id, last_cleaning, next_cleaning, timestamp, machine_no
-                FROM cassette_scan_log
+                FROM cassette_reader_log
                 {where}
                 ORDER BY timestamp DESC
                 LIMIT %s OFFSET %s
@@ -3088,9 +3171,9 @@ class RFIDApp:
                 "machineStatus":  r[2],
                 "lotId":          r[3],
                 "batchId":        r[4],
-                "lastCleaning":   r[5].strftime('%Y-%m-%d %H:%M:%S') if r[5] else None,
-                "nextCleaning":   r[6].strftime('%Y-%m-%d %H:%M:%S') if r[6] else None,
-                "timestamp":      r[7].strftime('%Y-%m-%d %H:%M:%S') if r[7] else None,
+                "lastCleaning":   (r[5].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[5], 'strftime') else str(r[5])) if r[5] else None,
+                "nextCleaning":   (r[6].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[6], 'strftime') else str(r[6])) if r[6] else None,
+                "timestamp":      (r[7].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[7], 'strftime') else str(r[7])) if r[7] else None,
                 "machineNo":      r[8],
             } for r in rows]
 
@@ -3109,33 +3192,76 @@ class RFIDApp:
         """Get system information endpoint"""
         try:
             uptime = datetime.now() - self.start_time
-            conn_info = f"{Config.DB_CONFIG['host']}:{Config.DB_CONFIG['port']}"
-            hostname = socket.gethostname()
-            local_ip = socket.gethostbyname(hostname)
-
-            conn = DatabaseManager.get_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM fpc_reader_log WHERE DATE(timestamp) = CURDATE()")
-            log_count_today = cursor.fetchone()[0]
+            is_mysql = getattr(DatabaseManager, '_MYSQL_ONLINE', False)
+            conn_info = f"MariaDB ({Config.DB_CONFIG['host']}:{Config.DB_CONFIG['port']})" if is_mysql else "SQLite (RFID_database_SQLite.db)"
             
+            try:
+                hostname = socket.gethostname()
+                local_ip = socket.gethostbyname(hostname)
+            except Exception:
+                local_ip = "127.0.0.1"
+
+            log_count_today = 0
             db_status = "Online"
             try:
-                cursor.execute("SELECT 1")
-            except:
+                conn = DatabaseManager.get_connection()
+                cursor = conn.cursor()
+                today_str = datetime.now().strftime('%Y-%m-%d')
+                cursor.execute("SELECT COUNT(*) FROM scan_log WHERE DATE(timestamp) = %s", (today_str,))
+                row = cursor.fetchone()
+                log_count_today = row[0] if row else 0
+                conn.close()
+            except Exception as dbe:
                 db_status = "Error"
-            conn.close()
+                print(f"[WARN] _get_system_info DB check: {dbe}")
             
             latest_backup = "-"
             backup_files = sorted(glob.glob("logs/*.csv"), reverse=True)
             if backup_files:
                 latest_backup = os.path.basename(backup_files[0])
 
+            # Reader 1: Header
+            hdr = getattr(self, 'header_reader', None)
+            hdr_port = getattr(hdr, 'port', None) or getattr(Config, 'RFID_PORT', '/dev/ttyUSB0')
+            hdr_baud = getattr(hdr, 'baudrate', None) or getattr(Config, 'RFID_BAUDRATE', 115200)
+            hdr_conn = bool(hdr and getattr(hdr, 'ser', None) and getattr(hdr.ser, 'is_open', False))
+
+            # Reader 2: FPC
+            fpc = getattr(self, 'fpc_reader', None)
+            fpc_port = getattr(fpc, 'port', None) or getattr(Config, 'RFID_PORT_FPC', '/dev/ttyUSB1')
+            fpc_baud = getattr(fpc, 'baudrate', None) or getattr(Config, 'RFID_BAUDRATE_FPC', 115200)
+            fpc_conn = bool(fpc and getattr(fpc, 'ser', None) and getattr(fpc.ser, 'is_open', False))
+
+            # Reader 3: Cassette
+            cass = getattr(self, 'cassette_reader', None)
+            cass_port = getattr(cass, 'port', None) or getattr(Config, 'RFID_PORT_CASSETTE', '/dev/ttyUSB2')
+            cass_baud = getattr(cass, 'baudrate', None) or getattr(Config, 'RFID_BAUDRATE_CASSETTE', 9600)
+            cass_conn = bool(cass and getattr(cass, 'ser', None) and getattr(cass.ser, 'is_open', False))
+
             return jsonify({
                 'status': 'success',
-                'model': "ThingMagic Elara USB RFID Reader",
-                'port': self.header_reader.port if self.header_reader else Config.RFID_PORT,
-                'baudrate': self.header_reader.baudrate if self.header_reader else Config.RFID_BAUDRATE,
-                'connected': (self.header_reader.ser is not None and self.header_reader.ser.is_open) if self.header_reader else False,
+                'header_reader': {
+                    'model': "YRM100 UHF RFID Reader",
+                    'port': str(hdr_port),
+                    'baudrate': str(hdr_baud),
+                    'connected': hdr_conn
+                },
+                'fpc_reader': {
+                    'model': "YRM100 UHF RFID Reader",
+                    'port': str(fpc_port),
+                    'baudrate': str(fpc_baud),
+                    'connected': fpc_conn
+                },
+                'cassette_reader': {
+                    'model': "HID OMNIKEY 5127CK Mini",
+                    'port': str(cass_port),
+                    'baudrate': str(cass_baud),
+                    'connected': cass_conn
+                },
+                'model': "YRM100 UHF / HID OMNIKEY 5127CK Mini (3 Readers)",
+                'port': f"{hdr_port}, {fpc_port}, {cass_port}",
+                'baudrate': f"{hdr_baud} / {cass_baud}",
+                'connected': (hdr_conn or fpc_conn or cass_conn),
                 'uptime': str(uptime).split('.')[0],
                 'database': conn_info,
                 'python': platform.python_version(),
@@ -3239,7 +3365,7 @@ class RFIDApp:
             return False
 
 
-    def run(self, host='0.0.0.0', port=8000, debug=False):
+    def run(self, host='0.0.0.0', port=8001, debug=False):
         """Run the Flask application"""
         self.app.run(host=host, port=port, debug=debug)
 
@@ -3275,7 +3401,7 @@ def main():
 
 
     # Run the Flask application
-    app.run(host='0.0.0.0', port=8000, debug=False)
+    app.run(host='0.0.0.0', port=8001, debug=False)
 
 
 if __name__ == '__main__':

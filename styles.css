@@ -1940,7 +1940,8 @@ body {
 }
 
 .about-container {
-  max-width: 500px;
+  width: 95%;
+  max-width: 660px;
   background: #fff;
   padding: 25px;
   border-radius: 12px;
@@ -1966,6 +1967,7 @@ body {
 .info-table td {
   padding: 6px 10px;
   border-bottom: 1px solid #ccc;
+  white-space: nowrap;
 }
 
 
@@ -2143,7 +2145,7 @@ body {
 
   /* About page */
   .about-container {
-    max-width: 450px;
+    max-width: 640px;
     padding: 20px;
   }
 

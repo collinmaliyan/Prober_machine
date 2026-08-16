@@ -1650,13 +1650,9 @@ let currentEmployeeId = null;
 
 function logAction(action) {
   const payload = {
-    employee_id: (currentEmployeeId || '').toUpperCase(),
+    employee_id: (currentEmployeeId || 'ADMIN').toUpperCase(),
     action
   };
-  if (!payload.employee_id) {
-    // not logged into settings; skip
-    return;
-  }
   fetch('/api/system_log', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2051,20 +2047,43 @@ function loadSystemInfo() {
     .then(res => res.json())
     .then(data => {
       if (data.status === 'success') {
-        document.getElementById('model').textContent = data.model;
-        document.getElementById('port').textContent = data.port;
-        document.getElementById('baud').textContent = data.baudrate;
-        document.getElementById('status').textContent = data.connected ? 'Connected' : 'Disconnected';
-        document.getElementById('uptime').textContent = data.uptime;
-        document.getElementById('database').textContent = data.database;
-        document.getElementById('pyver').textContent = data.python;
-        document.getElementById('flaskver').textContent = data.flask;
-        document.getElementById('os').textContent = data.os;
-        document.getElementById('ip').textContent = data.ip;
-        document.getElementById('prober_ip').textContent = data.prober_ip || '-';
-        document.getElementById('log_count').textContent = data.log_count;
-        document.getElementById('db_status').textContent = data.db_status;
-        document.getElementById('last_backup').textContent = data.last_backup;
+        // Reader #1: Cassette
+        const r1 = data.cassette_reader || {};
+        const r1Info = document.getElementById('r1-info');
+        if (r1Info) r1Info.textContent = `${r1.model || 'HID OMNIKEY 5127CK Mini'} (${r1.port || '/dev/ttyUSB2'} | ${r1.baudrate || '9600'})`;
+        const r1Status = document.getElementById('r1-status');
+        if (r1Status) r1Status.textContent = r1.connected ? 'Connected' : 'Disconnected';
+
+        // Reader #2: FPC
+        const r2 = data.fpc_reader || {};
+        const r2Info = document.getElementById('r2-info');
+        if (r2Info) r2Info.textContent = `${r2.model || 'YRM100 UHF RFID Reader'} (${r2.port || '/dev/ttyUSB1'} | ${r2.baudrate || '115200'})`;
+        const r2Status = document.getElementById('r2-status');
+        if (r2Status) r2Status.textContent = r2.connected ? 'Connected' : 'Disconnected';
+
+        // Reader #3: Header
+        const r3 = data.header_reader || {};
+        const r3Info = document.getElementById('r3-info');
+        if (r3Info) r3Info.textContent = `${r3.model || 'YRM100 UHF RFID Reader'} (${r3.port || '/dev/ttyUSB0'} | ${r3.baudrate || '115200'})`;
+        const r3Status = document.getElementById('r3-status');
+        if (r3Status) r3Status.textContent = r3.connected ? 'Connected' : 'Disconnected';
+
+        // Single fallback elements
+        const modelEl = document.getElementById('model'); if (modelEl) modelEl.textContent = data.model;
+        const portEl = document.getElementById('port'); if (portEl) portEl.textContent = data.port;
+        const baudEl = document.getElementById('baud'); if (baudEl) baudEl.textContent = data.baudrate;
+        const statusEl = document.getElementById('status'); if (statusEl) statusEl.textContent = data.connected ? 'Connected' : 'Disconnected';
+
+        const uptimeEl = document.getElementById('uptime'); if (uptimeEl) uptimeEl.textContent = data.uptime;
+        const dbEl = document.getElementById('database'); if (dbEl) dbEl.textContent = data.database;
+        const pyverEl = document.getElementById('pyver'); if (pyverEl) pyverEl.textContent = data.python;
+        const flaskverEl = document.getElementById('flaskver'); if (flaskverEl) flaskverEl.textContent = data.flask;
+        const osEl = document.getElementById('os'); if (osEl) osEl.textContent = data.os;
+        const ipEl = document.getElementById('ip'); if (ipEl) ipEl.textContent = data.ip;
+        const proberIpEl = document.getElementById('prober_ip'); if (proberIpEl) proberIpEl.textContent = data.prober_ip || '-';
+        const logCountEl = document.getElementById('log_count'); if (logCountEl) logCountEl.textContent = data.log_count;
+        const dbStatusEl = document.getElementById('db_status'); if (dbStatusEl) dbStatusEl.textContent = data.db_status;
+        const lastBackupEl = document.getElementById('last_backup'); if (lastBackupEl) lastBackupEl.textContent = data.last_backup;
       }
     })
     .catch(err => console.error('Failed to load system info:', err));
