@@ -21,6 +21,22 @@ def init_sqlite_db():
         ('13989336',), ('13989472',), ('ADMIN',)
     ])
 
+    # 1.5. batch table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS batch (
+        batch_id TEXT PRIMARY KEY,
+        lot_id TEXT,
+        fpc_id TEXT,
+        product_code TEXT
+    );
+    """)
+    batch_rows = [
+        ('BATCH-001', 'LOT-666', 'P13080', 'PRD-13080'),
+        ('BATCH-111', 'LOT-222', '2ID031', 'PRD-2ID031'),
+        ('BBATLP111', 'K0SD23124000', 'P15230', 'PRD-15230')
+    ]
+    cursor.executemany("INSERT INTO batch VALUES (?,?,?,?);", batch_rows)
+
     # 2. fpc table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS fpc (

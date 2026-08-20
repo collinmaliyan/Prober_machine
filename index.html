@@ -160,7 +160,7 @@
                                 </div>
                             </div>
 
-                            <!-- RFID-2: FPC Reader -->
+                            <!-- RFID-2: FPC Reader (หัวอ่านและเซนเซอร์ของการ์ด FPC) -->
                             <div class="rfid-card" id="rfid-card-fpc">
                                 <div class="card-title">RFID-2 (FPC)</div>
                                 <div class="card-status-row">
@@ -174,9 +174,12 @@
                                                 id="rfid-fpc-reader-text">Disconnected</span>
                                         </span>
                                     </div>
+                                    <!-- คอลัมน์แสดงสถานะ Sensor (คลิกที่ป้ายนี้เพื่อจำลอง เสียบ/ถอด แผ่น FPC) -->
                                     <div class="status-column">
                                         <span class="status-label">Sensor</span>
-                                        <span class="sensor-value off" id="rfid-fpc-sensor-status">OFF</span>
+                                        <span class="sensor-value off" id="rfid-fpc-sensor-status"
+                                            onclick="toggleSensorSimulator()"
+                                            title="คลิกเพื่อจำลอง เสียบ/ถอด การ์ด FPC (สลับสถานะ Sensor ON/OFF)">OFF</span>
                                     </div>
                                 </div>
                             </div>
@@ -266,8 +269,7 @@
                             </div>
 
                             <!-- 1. PMI Status Bar:
-                                 ทำหน้าที่แสดงผลสถานะการประมวลผลกล้อง PMI ปัจจุบัน (WAITING / PASSED / FAILED)
-                                 เปลี่ยนสีพื้นหลังตามสถานะด้วยคลาส: .waiting, .passed, .failed -->
+                                 ทำหน้าที่แสดงผลสถานะการประมวลผลกล้อง PMI ปัจจุบัน (WAITING / PASSED / FAILED) -->
                             <div class="pmi-status-bar waiting" id="pmi-status-bar">
                                 WAITING
                             </div>
@@ -277,7 +279,6 @@
                             <div class="pmi-frames-container" id="pmi-frames-container">
                                 <!-- Outer Square Frame 1 (Original / Raw View) -->
                                 <div class="pmi-outer-frame">
-                                    <!-- Inner Square Frame (Slate screen) -->
                                     <div class="pmi-inner-frame">
                                         <!-- Mock up PMI: Image element for raw viewport -->
                                         <img src="/pmi_inspection.png" class="pmi-camera-image grayscale"
@@ -298,29 +299,16 @@
                                         <div class="camera-coords top-right">CAM_01</div>
                                         <div class="camera-coords bottom-right">X: 0.00 Y: 0.00</div>
 
-                                        <!-- Under Construction Sign -->
+                                        <!-- Under-construction fallback indicator -->
                                         <div class="pmi-under-construction" id="pmi-raw-construct">
-                                            <div class="construction-sign">
-                                                <div class="construction-sign-content">
-                                                    <svg viewBox="0 0 24 24" class="construction-icon" fill="none"
-                                                        stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-                                                        stroke-linejoin="round">
-                                                        <!-- crossed wrench and hammer symbol -->
-                                                        <path
-                                                            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                                                        <line x1="16" y1="5" x2="19" y2="8" />
-                                                    </svg>
-                                                    <div class="sign-text">UNDER</div>
-                                                    <div class="sign-text">CONSTRUCTION</div>
-                                                </div>
-                                            </div>
+                                            <div class="construction-icon">🛠️</div>
+                                            <div class="construction-text">UNDER<br>CONSTRUCTION</div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Outer Square Frame 2 (Analyzed / Processed View) -->
+                                <!-- Outer Square Frame 2 (Processed / Highlighted View) -->
                                 <div class="pmi-outer-frame">
-                                    <!-- Inner Square Frame (Slate screen) -->
                                     <div class="pmi-inner-frame">
                                         <!-- Mock up PMI: Image element for processed viewport -->
                                         <img src="/pmi_inspection.png" class="pmi-camera-image" id="pmi-processed-img"
@@ -343,33 +331,46 @@
                                         <div class="camera-coords top-right">CAM_02</div>
                                         <div class="camera-coords bottom-right">X: 0.00 Y: 0.00</div>
 
-                                        <!-- Under Construction Sign -->
+                                        <!-- Under-construction fallback indicator -->
                                         <div class="pmi-under-construction" id="pmi-processed-construct">
-                                            <div class="construction-sign">
-                                                <div class="construction-sign-content">
-                                                    <svg viewBox="0 0 24 24" class="construction-icon" fill="none"
-                                                        stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-                                                        stroke-linejoin="round">
-                                                        <!-- crossed wrench and hammer symbol -->
-                                                        <path
-                                                            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                                                        <line x1="16" y1="5" x2="19" y2="8" />
-                                                    </svg>
-                                                    <div class="sign-text">UNDER</div>
-                                                    <div class="sign-text">CONSTRUCTION</div>
-                                                </div>
-                                            </div>
+                                            <div class="construction-icon">🛠️</div>
+                                            <div class="construction-text">UNDER<br>CONSTRUCTION</div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- 3. Image File Name Display:
-                                 ทำหน้าที่แสดงชื่อไฟล์ของรูปภาพ PMI ที่กำลังประมวลผลปัจจุบันแบบยาวพิเศษ -->
-                            <div class="pmi-filename-box">
-                                <label class="pmi-filename-label">Image File:</label>
-                                <span class="pmi-filename-display"
-                                    id="pmi-filename-display">20260505114649_TR7A9073W25C5_X37Y2_S10_P15_NM_29D5B0FBAA-PC611_300.bmp</span>
+                            <!-- Hidden Image Filename store for JS Parser -->
+                            <span id="pmi-filename-display"
+                                style="display: none;">20260505114649_TR7A9073W25C5_X37Y2_S10_P15_NM_29D5B0FBAA-PC611_300.bmp</span>
+
+                            <!-- 4. PMI Parsed Data Fields Grid:
+                                 จัดเรียงแบบ 2 คอลัมน์ 3 แถวสมมาตรเป๊ะ (ฝั่งซ้าย = Date&Time, Batch#-Wafer#, Product Setup / ฝั่งขวา = XY, Site#/Pad#, Temp) -->
+                            <div class="pmi-parsed-grid" id="pmi-parsed-grid">
+                                <div class="pmi-data-card">
+                                    <span class="pmi-card-label">Date & Time</span>
+                                    <span class="pmi-card-value" id="pmi-field-datetime">2026-05-05 11:46:49</span>
+                                </div>
+                                <div class="pmi-data-card">
+                                    <span class="pmi-card-label">XY Coordinate</span>
+                                    <span class="pmi-card-value" id="pmi-field-xy">X37Y2</span>
+                                </div>
+                                <div class="pmi-data-card">
+                                    <span class="pmi-card-label">Batch# - Wafer#</span>
+                                    <span class="pmi-card-value" id="pmi-field-batch-wafer">TR7A9073-W25C5</span>
+                                </div>
+                                <div class="pmi-data-card">
+                                    <span class="pmi-card-label">Site# / Pad#</span>
+                                    <span class="pmi-card-value" id="pmi-field-sitepad">S10 / P15</span>
+                                </div>
+                                <div class="pmi-data-card">
+                                    <span class="pmi-card-label">Product Setup File</span>
+                                    <span class="pmi-card-value" id="pmi-field-setup">29D5B0FBAA-PC611</span>
+                                </div>
+                                <div class="pmi-data-card">
+                                    <span class="pmi-card-label">Temp</span>
+                                    <span class="pmi-card-value" id="pmi-field-temp">300</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -533,6 +534,15 @@
                                 <input id="search-date" class="search-input" type="date">
                             </div>
 
+                            <div class="search-group">
+                                <label for="search-result">ผลลัพธ์ (Result)</label>
+                                <select id="search-result" class="search-input search-select" onchange="searchLogs()">
+                                    <option value="all">ทั้งหมด (All)</option>
+                                    <option value="match">จับคู่ถูกต้อง (Match)</option>
+                                    <option value="mismatch">จับคู่ผิด (Mismatch)</option>
+                                </select>
+                            </div>
+
                             <button class="search-btn" onclick="searchLogs()">Search</button>
                             <button class="clear-btn" onclick="clearSearch()">Clear</button>
                             <button class="export-btn" onclick="exportCSV()">Export CSV</button>
@@ -556,6 +566,7 @@
                                     <th>Timestamp</th>
                                     <th>AGV No</th>
                                     <th>Machine No</th>
+                                    <th>ผลลัพธ์ (Result)</th>
                                 </tr>
                             </thead>
                             <tbody id="log-table-body">
@@ -817,7 +828,8 @@
         <div class="modal-dialog">
             <div class="modal-header" style="justify-content: center; position: relative;">
                 <h3 class="settings-log-title">Settings Log</h3>
-                <button class="modal-close" onclick="closeSettingsLog()" style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%);">×</button>
+                <button class="modal-close" onclick="closeSettingsLog()"
+                    style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%);">×</button>
             </div>
             <div class="modal-toolbar">
                 <div class="search-section" style="width: 100%; margin-bottom: 8px;">
@@ -834,11 +846,13 @@
                         <input id="syslog-date" class="search-input" type="date">
                     </div>
                     <button class="clear-btn" onclick="clearSettingsLogFilters()">Clear</button>
-                    
-                    <button class="search-btn" onclick="loadSettingsLog(1)" style="grid-column: span 4; margin-top: 8px; width: 100%;">Search</button>
+
+                    <button class="search-btn" onclick="loadSettingsLog(1)"
+                        style="grid-column: span 4; margin-top: 8px; width: 100%;">Search</button>
                 </div>
-                
-                <div class="table-info" style="width: 100%; border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
+
+                <div class="table-info"
+                    style="width: 100%; border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
                     <span>Total Records: <span id="syslog-record-count">0</span></span>
                 </div>
             </div>
@@ -864,7 +878,7 @@
     </div>
 
 
-    <script src="script.js"></script>
+    <script src="script.js?v=20260820_v22"></script>
 
     <div id="mismatch-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mm-title"
         style="display:none">
@@ -898,46 +912,26 @@
     <link rel="stylesheet" href="/static/styles.css">
     <script src="/static/agv-map.js"></script>
 
-    <!-- MISMATCH Warning Modal
-<div id="pm-warning" class="modal" style="display:none;">
-  <div class="modal-dialog">
-    <div class="modal-header pm-warning-header">
-    <h3> Maintenance Required </h3>
-    <button class="modal-close" onclick="hidePmWarning()">×</button>
-    </div>
-    <div class="modal-body pm-warning-body">
-    <div class="pm-warning-icon">❌</div>
-    <div class="pm-warning-title">Mismatch FPC with Header</div>
-    <div class="pm-warning-text">
-        <p>Please <strong> INFORMED </strong> the store before starting a new lot.</p>
-        <p>Please wait for system to re-matching</p>
-    </div>
-    <div id="pm-warning-detail" class="pm-warning-detail"></div>
-    </div>
-    <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
-      <button class="btn btn-secondary" onclick="hidePmWarning()">OK</button>
-    </div>
-  </div>
-</div> -->
-
-    <!-- PM Warning Modal -->
+    <!-- PM / Mismatch Warning Modal -->
     <div id="pm-warning" class="modal" style="display:none;">
         <div class="modal-dialog">
             <div class="modal-header pm-warning-header">
-                <h3> Maintenance Required </h3>
-                <button class="modal-close" onclick="hidePmWarning()">×</button>
+                <h3 id="pm-warning-header-title"> Maintenance Required </h3>
+                <button class="modal-close" id="pm-close" type="button"
+                    onclick="document.getElementById('pm-warning').style.display='none'; hidePmWarning();">×</button>
             </div>
             <div class="modal-body pm-warning-body">
-                <div class="pm-warning-icon">⚠️</div>
-                <div class="pm-warning-title">Touchdown Limit Exceeded</div>
-                <div class="pm-warning-text">
+                <div class="pm-warning-icon" id="pm-warning-icon">⚠️</div>
+                <div class="pm-warning-title" id="pm-warning-title">Touchdown Limit Exceeded</div>
+                <div class="pm-warning-text" id="pm-warning-text">
                     <p>PM is <strong>REQUIRED</strong> before starting a new lot.</p>
                     <p>Please remove FPC and Header from Prober Machine.</p>
                 </div>
                 <div id="pm-warning-detail" class="pm-warning-detail"></div>
             </div>
             <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
-                <button class="btn btn-secondary" onclick="hidePmWarning()">OK</button>
+                <button class="btn btn-secondary" id="pm-ok" type="button"
+                    onclick="document.getElementById('pm-warning').style.display='none'; hidePmWarning();">OK</button>
             </div>
         </div>
     </div>

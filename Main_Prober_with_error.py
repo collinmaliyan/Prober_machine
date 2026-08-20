@@ -41,8 +41,9 @@ def fetch_pose(robot: dict) -> dict:
 # =============================================================================
 
 class SQLiteCursorWrapper:
-    def __init__(self, sqlite_cursor):
+    def __init__(self, sqlite_cursor, as_dict=False):
         self.cursor = sqlite_cursor
+        self.as_dict = as_dict
 
     def execute(self, sql, params=()):
         sql_converted = sql.replace("%s", "?")
@@ -50,10 +51,18 @@ class SQLiteCursorWrapper:
         return self.cursor.execute(sql_converted, params)
 
     def fetchone(self):
-        return self.cursor.fetchone()
+        row = self.cursor.fetchone()
+        if row is None or not self.as_dict:
+            return row
+        cols = [col[0] for col in self.cursor.description]
+        return dict(zip(cols, row))
 
     def fetchall(self):
-        return self.cursor.fetchall()
+        rows = self.cursor.fetchall()
+        if not self.as_dict:
+            return rows
+        cols = [col[0] for col in self.cursor.description]
+        return [dict(zip(cols, r)) for r in rows]
 
     def close(self):
         self.cursor.close()
@@ -62,8 +71,8 @@ class SQLiteConnWrapper:
     def __init__(self, sqlite_conn):
         self.conn = sqlite_conn
 
-    def cursor(self):
-        return SQLiteCursorWrapper(self.conn.cursor())
+    def cursor(self, dictionary=False):
+        return SQLiteCursorWrapper(self.conn.cursor(), as_dict=dictionary)
 
     def commit(self):
         self.conn.commit()
@@ -309,11 +318,18 @@ class DatabaseManager:
             conn.close()
             if not row:
                 return None
-            # (touchdown BIGINT, latest_pm DATETIME, comment VARCHAR)
+            # (touchdown BIGINT, latest_pm DATETIME/TEXT, comment VARCHAR)
             td, pm, cmt = row
+            pm_formatted = None
+            if pm:
+                if hasattr(pm, 'strftime'):
+                    pm_formatted = pm.strftime('%Y-%m-%d')
+                else:
+                    pm_formatted = str(pm).split(' ')[0]
+
             return {
                 "touchdown": td,
-                "pm_date": pm.strftime('%Y-%m-%d') if pm else None,
+                "pm_date": pm_formatted,
                 "comment": cmt
             }
         except Exception as e:
@@ -427,17 +443,30 @@ class DatabaseManager:
             # Is it the active match right now?
             cur.execute("SELECT fpc_id FROM header WHERE header_id=%s LIMIT 1", (header_id,))
             row = cur.fetchone()
-            active_match = bool(row and row.get('fpc_id') == fpc_id)
+            if isinstance(row, dict):
+                matched_fpc = row.get('fpc_id')
+            elif isinstance(row, (tuple, list)) and len(row) > 0:
+                matched_fpc = row[0]
+            else:
+                matched_fpc = None
+            active_match = bool(matched_fpc and str(matched_fpc) == str(fpc_id))
 
             # Is it at least an allowed pair?
             cur.execute("SELECT 1 AS ok FROM fpc_header_allowed WHERE fpc_id=%s AND header_id=%s LIMIT 1", (fpc_id, header_id))
             row2 = cur.fetchone()
-            allowed_pair = bool(row2 and row2.get('ok') == 1)
+            if isinstance(row2, dict):
+                ok_val = row2.get('ok')
+            elif isinstance(row2, (tuple, list)) and len(row2) > 0:
+                ok_val = row2[0]
+            else:
+                ok_val = None
+            allowed_pair = bool(ok_val == 1 or ok_val is not None)
 
             cur.close()
             conn.close()
             return active_match, allowed_pair
-        except Exception:
+        except Exception as e:
+            print(f"[ERROR] is_active_pair: {e}")
             return False, False
 
 
@@ -498,7 +527,7 @@ class DatabaseManager:
             cursor.execute("""
                 SELECT machine_status, lot_id, batch_id, last_cleaning, next_cleaning
                 FROM cassette
-                WHERE cassette_id = %s
+                WHERE LOWER(cassette_id) = LOWER(%s)
             """, (cassette_id,))
             row = cursor.fetchone()
             conn.close()
@@ -508,8 +537,8 @@ class DatabaseManager:
                     "machine_status": row[0],
                     "lot_id": row[1],
                     "batch_id": row[2],
-                    "last_cleaning": row[3].strftime('%Y-%m-%d %H:%M:%S') if row[3] else None,
-                    "next_cleaning": row[4].strftime('%Y-%m-%d %H:%M:%S') if row[4] else None
+                    "last_cleaning": row[3].strftime('%Y-%m-%d %H:%M:%S') if (row[3] and hasattr(row[3], 'strftime')) else str(row[3]) if row[3] else None,
+                    "next_cleaning": row[4].strftime('%Y-%m-%d %H:%M:%S') if (row[4] and hasattr(row[4], 'strftime')) else str(row[4]) if row[4] else None
                 }
             # Fallback if tag is not found in database (for testing)
             return {
@@ -880,14 +909,26 @@ def _safe_import_gpio():
         return None
 
 class SensorGate:
+    """
+    ============================================================================
+    คลาส SensorGate (ระบบจัดการและควบคุมสัญญาณเซนเซอร์ FPC):
+    ============================================================================
+    ทำหน้าที่ตรวจสอบสถานะการเสียบ/ถอดแผ่นการ์ด FPC:
+    1. โหมดหน้างานจริง (Production):
+       - ตรวจจับสัญญาณไฟฟ้าจากขา GPIO Pin 6 (หรือ MiR PLC) เมื่อมีแผ่นการ์ดบังเซนเซอร์
+    2. โหมดจำลองบนคอมพิวเตอร์ (Simulator Mode):
+       - เปิดใช้งานเมื่อรันบน Windows / Notebook ที่ไม่มี GPIO
+       - สามารถคลิกปุ่มป้าย Sensor บนหน้าเว็บ หรือกดปุ่ม 't' บนคีย์บอร์ดเพื่อสั่งสลับสถานะ ON/OFF
+    ============================================================================
+    """
     def __init__(self):
         self.mode = getattr(Config, 'SENSOR_MODE', 'GPIO').upper()
         self.active_high = bool(getattr(Config, 'SENSOR_ACTIVE_HIGH', True))
         self.GPIO = None
         self._setup_done = False
-        # --- keyboard simulator state ---
+        # --- สถานะการจำลองเซนเซอร์ (สำหรับทดสอบ) ---
         self._simulate = bool(getattr(Config, 'SIMULATE_SENSOR_WITH_KEYBOARD', False))
-        self._sim_state = False  # start as INACTIVE
+        self._sim_state = False  # เริ่มต้นเป็น INACTIVE (OFF)
         self._sim_key = str(getattr(Config, 'SENSOR_TOGGLE_KEY', 't')).lower()
 
 
@@ -1372,6 +1413,8 @@ class FPCReader:
     def connect(self):
         try:
             if self.ser is None or not self.ser.is_open:
+                if hasattr(Config, 'RFID_PORT_FPC') and Config.RFID_PORT_FPC:
+                    self.port = Config.RFID_PORT_FPC
                 self.ser = serial.Serial(self.port, self.baudrate, timeout=1)
                 print(f"[FPC] connected {self.port}")
             return True
@@ -1379,13 +1422,26 @@ class FPCReader:
             print(f"[FPC] open error: {e}")
             return False
 
-    def close(self):
+    def is_hw_connected(self):
+        """Return True if the configured COM port is present."""
         try:
-            if self.ser and self.ser.is_open:
-                self.ser.close()
+            if hasattr(Config, 'RFID_PORT_FPC') and Config.RFID_PORT_FPC:
+                self.port = Config.RFID_PORT_FPC
+            all_ports = list_ports.comports()
+            ports = [p.device.upper() for p in all_ports]
+            present = (self.port or "").upper() in ports
+
+            if not present:
+                try:
+                    if self.ser and self.ser.is_open:
+                        self.ser.close()
+                except Exception:
+                    pass
+                self.ser = None
+                self.running = False
+            return present
         except Exception:
-            pass
-        self.ser = None
+            return False
 
     def start(self):
         if self.running:
@@ -1615,8 +1671,6 @@ class RFIDApp:
         self.cassette_reader = None # reader #3 (CASSETTE)
         self.last_pair_logged = None  # (header_id, fpc_id, ts)
         self._hdr_seen_in_window = None
-        self._hdr_seen_timestamp = None  # ADD THIS LINE
-        self._header_for_fpc = None
         self._pair_state = {
             "pair_ok": None,            
             "pair_status": None,       
@@ -1636,8 +1690,15 @@ class RFIDApp:
             "batch_id": None,
             "last_cleaning": None,
             "next_cleaning": None,
-            "timestamp": None
+            "timestamp": None,
+            "stage": "IDLE"
         }
+        self._cassette_stage = "IDLE"          # IDLE -> LOADED -> IN_PROCESS -> STANDBY -> IDLE
+        self._cassette_active_tag = None
+        self._cassette_last_seen = 0
+
+        # Start cassette state machine timer loop
+        threading.Thread(target=self._cassette_timer_loop, daemon=True).start()
 
         # --- [NEW] Mockup Mode variables initialization ---
         # These variables store the simulated states for FPC and Cassette during mockup demo
@@ -1728,6 +1789,49 @@ class RFIDApp:
                 return jsonify({"status": "error", "message": "Tag details could not be resolved"}), 400
             
             return jsonify({"status": "success", "message": "Cassette reader connection simulated", "connected": connected})
+
+        # ============================================================================
+        # CASSETTE RFID SCAN ENDPOINT (รับข้อมูลสแกนแท็ก Cassette จาก 5127 CK)
+        # ============================================================================
+        @self.app.route('/api/cassette/scan', methods=['GET', 'POST'])
+        def api_cassette_scan():
+            if request.method == 'POST':
+                data = request.get_json(silent=True) or {}
+                tag = data.get('cassette_id') or data.get('tag')
+            else:
+                tag = request.args.get('tag') or request.args.get('cassette_id')
+            
+            res = self._on_cassette_scan(tag)
+            return jsonify(res)
+
+        # ============================================================================
+        # SENSOR SIMULATION & CONTROL ENDPOINTS (API ควบคุมเซนเซอร์จำลอง FPC)
+        # ============================================================================
+        # รองรับการคลิกปุ่ม Sensor Badge บนหน้าเว็บ GUI หรือสั่งงานผ่านคำสั่ง REST API:
+        # - สลับสถานะเป็น 'ON'  (ACTIVE)  : หัวอ่าน FPC (COM6) จะเปิดรอบสแกน 8 วินาทีเพื่ออ่านแท็ก
+        # - สลับสถานะเป็น 'OFF' (INACTIVE): เสมือนดึงแผ่น FPC ออก ข้อมูลในช่อง FPC จะถูกเคลียร์กลับเป็นค่าว่าง
+        # ============================================================================
+        @self.app.route('/api/toggle_sensor', methods=['POST'])
+        @self.app.route('/api/sensor/<action>', methods=['GET', 'POST'])
+        def control_sensor(action="toggle"):
+            """
+            ควบคุมสถานะเซนเซอร์จำลอง:
+            - action = 'toggle' : สลับสถานะ ON <-> OFF
+            - action = 'on'     : สั่งให้ Sensor เป็น ON (เสียบการ์ด)
+            - action = 'off'    : สั่งให้ Sensor เป็น OFF (ถอดการ์ด)
+            """
+            if getattr(self, 'fpc_reader', None) and getattr(self.fpc_reader, 'sensor', None):
+                curr = getattr(self.fpc_reader.sensor, '_sim_state', False)
+                if action == "on":
+                    self.fpc_reader.sensor._sim_state = True
+                elif action == "off":
+                    self.fpc_reader.sensor._sim_state = False
+                else:
+                    self.fpc_reader.sensor._sim_state = not curr
+                new_state = self.fpc_reader.sensor._sim_state
+                print(f"[SENSOR API] Sensor simulation state -> {'ACTIVE (ON)' if new_state else 'INACTIVE (OFF)'}")
+                return jsonify({"status": "success", "sensor_active": new_state})
+            return jsonify({"status": "error", "message": "FPC reader or sensor not available"}), 400
 
         @self.app.route('/api/logs')
         def get_logs():
@@ -2159,44 +2263,14 @@ class RFIDApp:
                 if getattr(self, 'header_reader', None):
                     hdr = self.header_reader.get_current_data()
                     if isinstance(hdr, dict):
-                        # Show header_id immediately
                         if hdr.get('header_id') is not None:
                             current['header_id'] = hdr.get('header_id')
-                            
-                            # Start delay timer when header is first detected
-                            if self._hdr_seen_timestamp is None or self._hdr_seen_in_window != hdr.get('header_id'):
-                                self._hdr_seen_in_window = hdr.get('header_id')
-                                self._hdr_seen_timestamp = time.time()
-                                self._header_for_fpc = None  # Reset FPC value
-                            
-                            # After delay, copy header to FPC field
-                            header_delay = float(getattr(Config, 'HEADER_TO_FPC_DELAY', 2.0))
-                            elapsed = time.time() - self._hdr_seen_timestamp
-                            if elapsed >= header_delay:
-                                self._header_for_fpc = self._hdr_seen_in_window
-                            
                         if hdr.get('header_name') is not None:
                             current['header_name'] = hdr.get('header_name')
                         if hdr.get('timestamp'):
                             current['timestamp'] = hdr.get('timestamp')
             except Exception as e:
                 print("[WARN] merge HEADER snapshot failed:", e)
-            # --- merge FPC live state (or use delayed header) ---
-            try:
-                # If we have a delayed header value, use it as FPC
-                if self._header_for_fpc:
-                    current['fpc_id'] = self._header_for_fpc
-                
-                # Otherwise check if there's a real FPC reader
-                elif getattr(self, 'fpc_reader', None):
-                    f = self.fpc_reader.snapshot()
-                    if isinstance(f, dict) and f.get('fpc_id'):
-                        current['fpc_id'] = f['fpc_id']
-                        # prefer a timestamp if we don't have one yet
-                        if not current['timestamp'] and f.get('timestamp'):
-                            current['timestamp'] = f['timestamp']
-            except Exception as e:
-                print("[WARN] merge FPC snapshot failed:", e)
 
             # --- merge FPC live state ---
             try:
@@ -2204,7 +2278,6 @@ class RFIDApp:
                     f = self.fpc_reader.snapshot()
                     if isinstance(f, dict) and f.get('fpc_id'):
                         current['fpc_id'] = f['fpc_id']
-                        # prefer a timestamp if we don't have one yet
                         if not current['timestamp'] and f.get('timestamp'):
                             current['timestamp'] = f['timestamp']
             except Exception as e:
@@ -2260,41 +2333,23 @@ class RFIDApp:
             try:
                 if getattr(self, 'cassette_reader', None):
                     is_cassette_connected = bool(self.cassette_reader.is_hw_connected())
-                    if is_cassette_connected and not self.cassette_reader.running:
-                        print("[AUTO] Cassette reader detected, starting thread…")
+                    if is_cassette_connected and not self.cassette_reader.running and not getattr(self.cassette_reader, '_started_once', False):
+                        self.cassette_reader._started_once = True
                         self.cassette_reader.start_reading()
                     elif not is_cassette_connected and self.cassette_reader.running:
                         self.cassette_reader.running = False
             except Exception as e:
-                print(f"[WARN] cassette is_hw_connected failed: {e}")
                 is_cassette_connected = False
 
-            # Merge live cassette state
+            # Live cassette state is managed authoritatively by _on_cassette_scan & _cassette_timer_loop
+            # We also check if cassette_reader (serial fallback) has an active tag
             try:
                 if getattr(self, 'cassette_reader', None):
                     cass = self.cassette_reader.get_current_data()
                     if isinstance(cass, dict) and cass.get('cassette_id'):
                         c_id = cass.get('cassette_id')
                         if self._cassette_state.get('cassette_id') != c_id:
-                            details = DatabaseManager.get_cassette_details(c_id)
-                            if details:
-                                self._cassette_state.update(details)
-                                self._cassette_state['timestamp'] = cass.get('timestamp')
-                                # Log it to the database
-                                DatabaseManager.store_cassette_log(
-                                    c_id, 
-                                    details.get('machine_status'),
-                                    details.get('lot_id'),
-                                    details.get('batch_id'),
-                                    details.get('last_cleaning'),
-                                    details.get('next_cleaning'),
-                                    cass.get('timestamp')
-                                )
-                    elif isinstance(cass, dict) and cass.get('cassette_id') is None:
-                        # Clear cassette state if tag cleared (and not simulated)
-                        if not getattr(self, '_cassette_simulated', False):
-                            for k in self._cassette_state:
-                                self._cassette_state[k] = None
+                            self._on_cassette_scan(c_id)
             except Exception as e:
                 print("[WARN] merge Cassette snapshot failed:", e)
 
@@ -2323,7 +2378,7 @@ class RFIDApp:
             }
 
             if getattr(self, 'fpc_reader', None):
-                fpc_conn = bool(self.fpc_reader.ser and self.fpc_reader.ser.is_open)
+                fpc_conn = bool(self.fpc_reader.is_hw_connected())
                 fpc_sens = 'ON' if self.fpc_reader.sensor.is_active() else 'OFF'
                 rfid_status['fpc']['connected'] = fpc_conn
                 rfid_status['fpc']['sensor'] = fpc_sens
@@ -2332,8 +2387,18 @@ class RFIDApp:
                 hdr_conn = bool(self.header_reader.is_hw_connected())
                 rfid_status['header']['connected'] = hdr_conn
 
-            if getattr(self, 'cassette_reader', None):
-                rfid_status['cassette']['connected'] = bool(self.cassette_reader.is_hw_connected())
+            # Check cassette 5127 CK presence independently
+            cass_conn = False
+            try:
+                for p in list_ports.comports():
+                    hwid = (p.hwid or "").upper()
+                    desc = (p.description or "").upper()
+                    if "076B:5128" in hwid or "5127" in desc or "OMNIKEY" in desc:
+                        cass_conn = True
+                        break
+            except Exception:
+                cass_conn = False
+            rfid_status['cassette']['connected'] = cass_conn
 
             # --- [NEW] Include machine_no in non-mockup response ---
             return jsonify({
@@ -2622,12 +2687,12 @@ class RFIDApp:
                     except Exception as e:
                         print("[WATCHDOG] header error:", e)
 
-                # FPC reader (optional auto-recover)
+                # FPC reader (auto-recover)
                 if self.fpc_reader:
                     try:
-                        # if port disappeared, try to reconnect/start
-                        # (we don't have an is_hw_connected() on FPCReader; do a cheap connect())
-                        if not self.fpc_reader.running:
+                        present = self.fpc_reader.is_hw_connected()
+                        if present and not self.fpc_reader.running:
+                            print("[WATCHDOG] USB present; starting FPC reader")
                             self.fpc_reader.start()
                     except Exception as e:
                         print("[WATCHDOG] fpc error:", e)
@@ -2636,16 +2701,124 @@ class RFIDApp:
                 if self.cassette_reader:
                     try:
                         present = self.cassette_reader.is_hw_connected()
-                        if present and not self.cassette_reader.running:
+                        if present and not self.cassette_reader.running and not getattr(self.cassette_reader, '_failed_once', False):
                             print("[WATCHDOG] USB present; starting CASSETTE reader")
-                            self.cassette_reader.start_reading()
+                            ok = self.cassette_reader.start_reading()
+                            if not ok:
+                                self.cassette_reader._failed_once = True
                     except Exception as e:
-                        print("[WATCHDOG] cassette error:", e)
+                        pass
             except Exception as e:
                 print("[WATCHDOG] loop error:", e)
 
             time.sleep(1)
 
+    # ============================================================================
+    # CASSETTE STATE MACHINE & EVENT HANDLER
+    # ============================================================================
+    @staticmethod
+    def _convert_thai_kedmanee_to_en(text):
+        if not text:
+            return ""
+        thai_to_en = {
+            'ๆ':'q','ไ':'w','ำ':'e','พ':'r','ะ':'t','ั':'y','ี':'u','ร':'i','น':'o','ย':'p','บ':'[','ล':']',
+            'ฟ':'a','ห':'s','ก':'d','ด':'f','เ':'g','้':'h','่':'j','า':'k','ส':'l','ว':';','ง':'\'',
+            'ผ':'z','ป':'x','แ':'c','อ':'v','ิ':'b','ื':'n','ท':'m','ม':',','ใ':'.','ฝ':'/',
+            '๑':'@','๒':'#','๓':'$','๔':'%','๕':'&','๖':'_','๗':'+','๘':'*','๙':'(','๐':')',
+            'ๅ':'1','ภ':'4','ถ':'5','ุ':'6','ึ':'7','ค':'8','ต':'9','จ':'0','ข':'-','ช':'='
+        }
+        return ''.join(thai_to_en.get(ch, ch) for ch in text).strip()
+
+    def _on_cassette_scan(self, tag):
+        tag = self._convert_thai_kedmanee_to_en((tag or "").strip())
+        if not tag:
+            return {"status": "error", "message": "empty tag"}
+        
+        now = time.time()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Case 1: Same tag scanned while already LOADED (continuous read at dock)
+        if self._cassette_stage == "LOADED" and tag.lower() == str(self._cassette_active_tag or "").lower():
+            self._cassette_last_seen = now
+            return {"status": "success", "message": "Cassette at dock (continuous read)", "data": self._cassette_state}
+
+        # Case 2: Tag comes back after being IN_PROCESS (Step 3: Test Finished / Standby at dock)
+        if self._cassette_stage == "IN_PROCESS" and tag.lower() == str(self._cassette_active_tag or "").lower():
+            self._cassette_stage = "STANDBY"
+            self._cassette_last_seen = now
+            self._cassette_state["stage"] = "STANDBY"
+            print(f"[CASSETTE] Tag {tag} returned from Prober machine -> Stage: STANDBY")
+            # Log standby completion
+            details = DatabaseManager.get_cassette_details(tag) or {}
+            DatabaseManager.store_cassette_log(
+                tag,
+                "STANDBY_COMPLETED",
+                self._cassette_state.get('lot_id'),
+                self._cassette_state.get('batch_id'),
+                details.get('last_cleaning'),
+                details.get('next_cleaning'),
+                timestamp
+            )
+            return {"status": "success", "message": "Cassette returned to dock (Standby)", "data": self._cassette_state}
+
+        # Case 3: New tag arrived (Step 1: First Arrival at dock)
+        self._cassette_active_tag = tag
+        self._cassette_stage = "LOADED"
+        self._cassette_last_seen = now
+        self._cassette_state.update({
+            "cassette_id": tag,
+            "machine_status": "Active",
+            "lot_id": tag,
+            "batch_id": tag,
+            "last_cleaning": None,
+            "next_cleaning": None,
+            "timestamp": timestamp,
+            "stage": "LOADED"
+        })
+        print(f"[CASSETTE] Read Raw Tag: {tag}")
+        DatabaseManager.store_cassette_log(
+            tag,
+            "LOADED",
+            tag,
+            tag,
+            None,
+            None,
+            timestamp
+        )
+        return {"status": "success", "message": f"Cassette tag {tag} read", "data": self._cassette_state}
+
+    def _cassette_timer_loop(self):
+        """
+        Watchdog timer loop for Cassette state transitions:
+        - If LOADED and not seen for >= 2 mins (120s) -> Transition to IN_PROCESS (Inside prober)
+        - If STANDBY and not seen for >= 1 min (60s) -> Clear screen to IDLE (Cassette removed)
+        """
+        in_process_timeout = getattr(Config, 'CASSETTE_IN_PROCESS_TIMEOUT_S', 120)
+        clear_timeout = getattr(Config, 'CASSETTE_CLEAR_TIMEOUT_S', 60)
+
+        while True:
+            try:
+                now = time.time()
+                # Step 2: If LOADED and not seen for >= 2 minutes -> Mark as IN_PROCESS
+                if self._cassette_stage == "LOADED" and self._cassette_last_seen > 0:
+                    if (now - self._cassette_last_seen) >= in_process_timeout:
+                        self._cassette_stage = "IN_PROCESS"
+                        self._cassette_state["stage"] = "IN_PROCESS"
+                        print(f"[CASSETTE] >{in_process_timeout}s without dock read -> Transitioned to IN_PROCESS for tag {self._cassette_active_tag}")
+
+                # Step 4: If STANDBY and not seen for >= 1 minute -> Cleared / IDLE
+                elif self._cassette_stage == "STANDBY" and self._cassette_last_seen > 0:
+                    if (now - self._cassette_last_seen) >= clear_timeout:
+                        print(f"[CASSETTE] >{clear_timeout}s without read after STANDBY -> Box unloaded, clearing screen to IDLE")
+                        self._cassette_stage = "IDLE"
+                        self._cassette_active_tag = None
+                        self._cassette_last_seen = 0
+                        for k in self._cassette_state:
+                            self._cassette_state[k] = None
+                        self._cassette_state["stage"] = "IDLE"
+            except Exception as e:
+                print(f"[CASSETTE TIMER ERROR] {e}")
+            time.sleep(1)
 
     def _both_logger_loop(self):
         """
@@ -2710,6 +2883,8 @@ class RFIDApp:
                                 "pm_date": pm_date,
                                 "comment": comment,
                                 "ts": ts_now,
+                                "mismatch_detected": False,
+                                "mismatch_type": None
                             })
                         else:
                             status = "allowed_but_inactive" if allowed_pair else "mismatch"
@@ -2725,32 +2900,14 @@ class RFIDApp:
                                 "pm_date": None,
                                 "comment": None,
                                 "ts": ts_now,
+                                "mismatch_detected": True,
+                                "mismatch_type": "inactive" if allowed_pair else "not_allowed",
+                                "mismatch_header": hdr_for_commit,
+                                "mismatch_fpc": fpc_last_id
                             })
-                        # ---- Detect mismatch and trigger frontend warning ----
-                    if not active_match and not allowed_pair:
-                        # Store mismatch flag for frontend to pick up
-                        self._pair_state.update({
-                            "mismatch_detected": True,
-                            "mismatch_type": "not_allowed",
-                            "mismatch_header": hdr_for_commit,
-                            "mismatch_fpc": fpc_last_id
-                        })
-                        print(f"[MISMATCH] Header {hdr_for_commit} + FPC {fpc_last_id} NOT ALLOWED")
-                    elif not active_match and allowed_pair:
-                        self._pair_state.update({
-                            "mismatch_detected": True,
-                            "mismatch_type": "inactive",
-                            "mismatch_header": hdr_for_commit,
-                            "mismatch_fpc": fpc_last_id
-                        })
-                        print(f"[MISMATCH] Header {hdr_for_commit} + FPC {fpc_last_id} allowed but INACTIVE")
-                    else:
-                        # Clear mismatch flags when pair is good
-                        self._pair_state.update({
-                            "mismatch_detected": False,
-                            "mismatch_type": None
-                        })
-                        # ---- INSERT one-shot to scan_log (same as before) ----
+                            print(f"[MISMATCH] Header {hdr_for_commit} + FPC {fpc_last_id} ({status})")
+
+                        # ---- INSERT one-shot to scan_log ----
                         try:
                             conn = DatabaseManager.get_connection()
                             cur = conn.cursor()
@@ -2776,14 +2933,13 @@ class RFIDApp:
                         except Exception as e:
                             print("[BOTH] scan_log insert failed:", e)
 
-                            if self.fpc_reader:
-                                self.fpc_reader.window_committed = True   # mark window done
                     # reset one-shot state for next window
-                    self._hdr_seen_in_window = None
                     if self.fpc_reader:
+                        self.fpc_reader.window_committed = True   # mark window done
                         self.fpc_reader.window_just_closed = False
                         self.fpc_reader.last_window_fpc_id = None
                         self.fpc_reader.last_window_timestamp = None
+                    self._hdr_seen_in_window = None
 
             except Exception as e:
                 print("[BOTH] loop error:", e)
@@ -2846,17 +3002,25 @@ class RFIDApp:
             rows = cur.fetchall()
             conn.close()
 
-            logs = [{
-                "logId":     f"LOG{str(r[0]).zfill(6)}",
-                "fpcId":     r[1],
-                "headerId":  r[2],
-                "headerName": r[3],
-                "timestamp": (r[4].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[4], 'strftime') else str(r[4])) if r[4] else None,
-                "agvNo":     r[5],
-                "machineNo": r[6],
-                "batchId":   r[7],
-                "lotId":     r[8],
-            } for r in rows]
+            logs = []
+            for r in rows:
+                f_id = r[1]
+                h_id = r[2]
+                is_mis = False
+                if f_id and h_id:
+                    is_mis = not DatabaseManager.is_header_active_for_fpc(h_id, f_id)
+                logs.append({
+                    "logId":     f"LOG{str(r[0]).zfill(6)}",
+                    "fpcId":     f_id,
+                    "headerId":  h_id,
+                    "headerName": r[3],
+                    "timestamp": (r[4].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[4], 'strftime') else str(r[4])) if r[4] else None,
+                    "agvNo":     r[5],
+                    "machineNo": r[6],
+                    "batchId":   r[7],
+                    "lotId":     r[8],
+                    "isMismatch": is_mis,
+                })
 
             return jsonify({
                 "status": "success",
@@ -2881,6 +3045,7 @@ class RFIDApp:
             machine_no = request.args.get('machine_no')
             agv_no = request.args.get('agv_no')
             date   = request.args.get('date')      # YYYY-MM-DD
+            result_filter = (request.args.get('result_filter') or 'all').lower()
             page   = int(request.args.get('page', 1))
             offset = (page - 1) * Config.PAGE_SIZE
 
@@ -2917,6 +3082,7 @@ class RFIDApp:
                     "machineNo":r[6],
                     "batchId":  r[7],
                     "lotId":    r[8],
+                    "isMismatch": False,
                 } for r in rows]
                 return jsonify({
                     "status": "success",
@@ -2961,29 +3127,76 @@ class RFIDApp:
             conn = DatabaseManager.get_connection()
             cur = conn.cursor()
 
-            cur.execute(f"SELECT COUNT(*) FROM scan_log {where}", tuple(params))
-            total = cur.fetchone()[0]
-            total_pages = (total + Config.PAGE_SIZE - 1) // Config.PAGE_SIZE
+            if result_filter in ('match', 'mismatch'):
+                cur.execute(f"""
+                    SELECT id, fpc_id, header_id, timestamp, agv_no, machine_no, batch_id, lot_id
+                    FROM scan_log
+                    {where}
+                    ORDER BY timestamp DESC
+                """, tuple(params))
+                all_rows = cur.fetchall()
+                conn.close()
 
-            cur.execute(f"""
-                SELECT id, fpc_id, header_id, timestamp, agv_no, machine_no, batch_id, lot_id
-                FROM scan_log
-                {where}
-                ORDER BY timestamp DESC
-                LIMIT %s OFFSET %s
-            """, tuple(params + [Config.PAGE_SIZE, offset]))
-            rows = cur.fetchall()
-            conn.close()
+                evaluated = []
+                for r in all_rows:
+                    f_id = r[1]
+                    h_id = r[2]
+                    is_mis = False
+                    if f_id and h_id:
+                        is_mis = not DatabaseManager.is_header_active_for_fpc(h_id, f_id)
+                    
+                    if result_filter == 'mismatch' and is_mis:
+                        evaluated.append((r, is_mis))
+                    elif result_filter == 'match' and not is_mis:
+                        evaluated.append((r, is_mis))
 
-            logs = [{
-                "fpcId":    r[1],
-                "headerId": r[2],
-                "timestamp": (r[3].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[3], 'strftime') else str(r[3])) if r[3] else None,
-                "agvNo":    r[4],
-                "machineNo":r[5],
-                "batchId":  r[6],
-                "lotId":    r[7],
-            } for r in rows]
+                total = len(evaluated)
+                total_pages = (total + Config.PAGE_SIZE - 1) // Config.PAGE_SIZE if total > 0 else 1
+                paged = evaluated[offset : offset + Config.PAGE_SIZE]
+
+                logs = [{
+                    "fpcId":    r[1],
+                    "headerId": r[2],
+                    "timestamp": (r[3].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[3], 'strftime') else str(r[3])) if r[3] else None,
+                    "agvNo":    r[4],
+                    "machineNo":r[5],
+                    "batchId":  r[6],
+                    "lotId":    r[7],
+                    "isMismatch": is_mis,
+                } for r, is_mis in paged]
+
+            else:
+                cur.execute(f"SELECT COUNT(*) FROM scan_log {where}", tuple(params))
+                total = cur.fetchone()[0]
+                total_pages = (total + Config.PAGE_SIZE - 1) // Config.PAGE_SIZE if total > 0 else 1
+
+                cur.execute(f"""
+                    SELECT id, fpc_id, header_id, timestamp, agv_no, machine_no, batch_id, lot_id
+                    FROM scan_log
+                    {where}
+                    ORDER BY timestamp DESC
+                    LIMIT %s OFFSET %s
+                """, tuple(params + [Config.PAGE_SIZE, offset]))
+                rows = cur.fetchall()
+                conn.close()
+
+                logs = []
+                for r in rows:
+                    f_id = r[1]
+                    h_id = r[2]
+                    is_mis = False
+                    if f_id and h_id:
+                        is_mis = not DatabaseManager.is_header_active_for_fpc(h_id, f_id)
+                    logs.append({
+                        "fpcId":    f_id,
+                        "headerId": h_id,
+                        "timestamp": (r[3].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[3], 'strftime') else str(r[3])) if r[3] else None,
+                        "agvNo":    r[4],
+                        "machineNo":r[5],
+                        "batchId":  r[6],
+                        "lotId":    r[7],
+                        "isMismatch": is_mis,
+                    })
 
             return jsonify({
                 "status": "success",
@@ -3220,23 +3433,29 @@ class RFIDApp:
             if backup_files:
                 latest_backup = os.path.basename(backup_files[0])
 
-            # Reader 1: Header
+            # Reader 1: Header (COM4)
             hdr = getattr(self, 'header_reader', None)
-            hdr_port = getattr(hdr, 'port', None) or getattr(Config, 'RFID_PORT', '/dev/ttyUSB0')
+            hdr_port = getattr(hdr, 'port', None) or getattr(Config, 'RFID_PORT', 'COM4')
             hdr_baud = getattr(hdr, 'baudrate', None) or getattr(Config, 'RFID_BAUDRATE', 115200)
-            hdr_conn = bool(hdr and getattr(hdr, 'ser', None) and getattr(hdr.ser, 'is_open', False))
+            hdr_conn = bool(hdr and hdr.is_hw_connected())
 
-            # Reader 2: FPC
+            # Reader 2: FPC (COM5)
             fpc = getattr(self, 'fpc_reader', None)
-            fpc_port = getattr(fpc, 'port', None) or getattr(Config, 'RFID_PORT_FPC', '/dev/ttyUSB1')
+            fpc_port = getattr(fpc, 'port', None) or getattr(Config, 'RFID_PORT_FPC', 'COM5')
             fpc_baud = getattr(fpc, 'baudrate', None) or getattr(Config, 'RFID_BAUDRATE_FPC', 115200)
-            fpc_conn = bool(fpc and getattr(fpc, 'ser', None) and getattr(fpc.ser, 'is_open', False))
+            fpc_conn = bool(fpc and fpc.is_hw_connected())
 
-            # Reader 3: Cassette
-            cass = getattr(self, 'cassette_reader', None)
-            cass_port = getattr(cass, 'port', None) or getattr(Config, 'RFID_PORT_CASSETTE', '/dev/ttyUSB2')
-            cass_baud = getattr(cass, 'baudrate', None) or getattr(Config, 'RFID_BAUDRATE_CASSETTE', 9600)
-            cass_conn = bool(cass and getattr(cass, 'ser', None) and getattr(cass.ser, 'is_open', False))
+            # Reader 3: Cassette (5127 CK USB HID)
+            cass_conn = False
+            try:
+                for p in list_ports.comports():
+                    hwid = (p.hwid or "").upper()
+                    desc = (p.description or "").upper()
+                    if "076B:5128" in hwid or "5127" in desc or "OMNIKEY" in desc:
+                        cass_conn = True
+                        break
+            except Exception:
+                cass_conn = False
 
             return jsonify({
                 'status': 'success',
@@ -3254,13 +3473,13 @@ class RFIDApp:
                 },
                 'cassette_reader': {
                     'model': "HID OMNIKEY 5127CK Mini",
-                    'port': str(cass_port),
-                    'baudrate': str(cass_baud),
+                    'port': "USB HID / Wedge",
+                    'baudrate': "N/A",
                     'connected': cass_conn
                 },
                 'model': "YRM100 UHF / HID OMNIKEY 5127CK Mini (3 Readers)",
-                'port': f"{hdr_port}, {fpc_port}, {cass_port}",
-                'baudrate': f"{hdr_baud} / {cass_baud}",
+                'port': f"{hdr_port}, {fpc_port}, USB HID",
+                'baudrate': f"{hdr_baud}",
                 'connected': (hdr_conn or fpc_conn or cass_conn),
                 'uptime': str(uptime).split('.')[0],
                 'database': conn_info,

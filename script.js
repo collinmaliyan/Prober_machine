@@ -81,6 +81,12 @@ function resetInactivityFromEvent() {
 // MAIN NAVIGATION SYSTEM
 // ============================================================================
 function switchPage(pageId, btnEl) {
+  // Restore sidebar navigation for all non-settings pages
+  if (pageId !== 'setting') {
+    const navPanel = document.querySelector('.nav-panel');
+    if (navPanel) navPanel.style.display = 'flex';
+  }
+
   // Update navigation buttons
   document.querySelectorAll('.nav-button').forEach(b => b.classList.remove('active'));
   if (btnEl) btnEl.classList.add('active');
@@ -92,6 +98,19 @@ function switchPage(pageId, btnEl) {
 
   // Stop updates, then start immediately when cleanup is done
   stopRealTimeUpdates().then(() => startPagePolling(pageId));
+
+  // Modals should ONLY be displayed on the Home page
+  if (pageId !== 'home') {
+    const pm = document.getElementById('pm-warning');
+    if (pm) pm.style.display = 'none';
+    const pre = document.getElementById('pm-prewarn');
+    if (pre) pre.style.display = 'none';
+  } else {
+    if (window.__pmModalOpen) {
+      const pm = document.getElementById('pm-warning');
+      if (pm) pm.style.display = 'flex';
+    }
+  }
 
   // Initialize page-specific functionality
   switch (pageId) {
@@ -197,7 +216,7 @@ function resetAgvView() {
   ['agv1', 'agv2', 'agv3'].forEach(prefix => {
     const box = document.getElementById(`${prefix}-box`);
     if (box) box.classList.remove('tag-active'); // clear green immediately
-    
+
     if (prefix === 'agv3') {
       const slotIds = ['c1-id', 'c1-status', 'c1-lot', 'c1-batch', 'c2-id', 'c2-status', 'c2-lot', 'c2-batch'];
       slotIds.forEach(id => {
@@ -321,12 +340,11 @@ function updateHomeFromLocal() {
               ? `FPC: ${fpc}  |  Header: ${hdr}  |  NOT matching together`
               : `Header: ${hdr} is currently active on a different FPC`;
 
-            const key = `MISMATCH|${hdr}|${fpc}|${rfidData.timestamp || ''}`;
+            const key = `MISMATCH|${hdr}|${fpc}`;
             if (window.__pmWarnKey !== key) {
               window.__pmWarnKey = key;
               window.__pmDetailText = msg;
-              window.__pmMismatchSticky = true;
-              try { showPmWarning(msg); } catch (_) { }
+              try { showPmWarning(msg, { type: 'mismatch' }); } catch (_) { }
               const pm = document.getElementById('pm-warning');
               if (pm) pm.style.display = 'flex';
             }
@@ -335,16 +353,22 @@ function updateHomeFromLocal() {
             if (box) {
               box.classList.add('warning-active');
               box.classList.remove('tag-active');
+              _updateInfoBoxBadge(box, 'danger', 'MISMATCH');
             }
           } else {
-            if (window.__pmMismatchSticky) {
-              window.__pmMismatchSticky = false;
-              try { hidePmWarning(); } catch (_) { }
-            }
             const box = document.getElementById('info-box');
             const td = Number(rfidData?.touchdown ?? 0);
-            if (box && (!Number.isFinite(td) || td < TD_LIMIT)) {
+            if (box && (!Number.isFinite(td) || td < TD_LIMIT) && !window.__pmModalOpen) {
               box.classList.remove('warning-active');
+              if (tagPresent && (rfidData.fpc_id || rfidData.header_id)) {
+                if (td >= TD_PREWARN_MIN) {
+                  _updateInfoBoxBadge(box, 'warning', 'TD NEARING LIMIT');
+                } else {
+                  _updateInfoBoxBadge(box, 'success', 'MATCH OK');
+                }
+              } else {
+                _updateInfoBoxBadge(box, 'none');
+              }
             }
           }
         } else {
@@ -353,15 +377,23 @@ function updateHomeFromLocal() {
 
         // --- Cassette Logic ---
         const cassetteData = data.cassette || {};
-        
-        // Show Cassette's Batch ID and Lot ID on the main FPC card fields
-        if (cassetteData.batch_id || cassetteData.lot_id) {
-          setMany(['batch-id-display'], cassetteData.batch_id || '');
-          setMany(['lot-id-display'], cassetteData.lot_id || '');
+        const isCassettePresent = !!(cassetteData.batch_id || cassetteData.lot_id || cassetteData.cassette_id);
+
+        // Show Cassette's raw tag on the main card fields
+        if (isCassettePresent) {
+          const rawTag = cassetteData.cassette_id || cassetteData.lot_id || cassetteData.batch_id || '';
+          setMany(['batch-id-display'], rawTag);
+          setMany(['lot-id-display'], rawTag);
+        } else {
+          setMany(['batch-id-display'], '');
+          setMany(['lot-id-display'], '');
         }
 
+        const hasAnyTag = tagPresent || isCassettePresent;
+        const isAnyConnected = isReaderConnected || !!data.cassette_connected || isCassettePresent || (data.rfid_status?.cassette?.connected);
+
         // connection + green state (respects warning-active)
-        updateConnectionStatus(isReaderConnected, tagPresent);
+        updateConnectionStatus(isAnyConnected, hasAnyTag);
         updateRfidStatusBar(data.rfid_status);
 
         kickAgvBackground();
@@ -407,33 +439,9 @@ function updateHomeFromLocal() {
 
 
 
-// Global sticky flag (prevents PM modal from auto-hiding during mismatch)
-window.__pmMismatchSticky = false;
-
-// Monkey-patch hide/clear so they NO-OP while sticky
-(function guardPmHiders() {
-  const hideOrig = window.hidePmWarning;
-  const clearOrig = window.clearPmWarningState;
-
-  window.hidePmWarning = function (...args) {
-    if (window.__pmMismatchSticky) return;  // don't close while mismatch active
-    return typeof hideOrig === 'function' ? hideOrig.apply(this, args) : undefined;
-  };
-
-  window.clearPmWarningState = function (...args) {
-    if (window.__pmMismatchSticky) return;  // don't clear while mismatch active
-    return typeof clearOrig === 'function' ? clearOrig.apply(this, args) : undefined;
-  };
-})();
-
-// Ensure the PM ACK button clears sticky (so user can dismiss)
-document.addEventListener('click', (e) => {
-  const id = (e.target && e.target.id) || '';
-  if (id === 'pm-ack' || id === 'pm-close' || id === 'pm-ok') {
-    window.__pmMismatchSticky = false;
-    try { hidePmWarning(); } catch (_) { }
-  }
-});
+// Explicit modal acknowledge state flag
+window.__pmModalOpen = false;
+window.__pmWarnKey = null;
 
 
 function clearAllDisplayFields() {
@@ -448,6 +456,7 @@ function clearAllDisplayFields() {
   __lastPmWarnKey = null;
   clearPmWarningState();
   clearPmPrewarningState();
+  _updateInfoBoxBadge(document.getElementById('info-box'), 'none');
   const pre = document.getElementById('td-prewarn');
   if (pre) { pre.style.display = 'none'; pre.textContent = ''; pre.classList.remove('hot'); }
 }
@@ -521,28 +530,20 @@ function updateConnectionStatus(connected, tagPresent) {
 }
 
 function updateRfidStatusBar(rfidStatus) {
-  // If rfidStatus is missing, fallback to mockup values based on whether the main FPC is connected
-  if (!rfidStatus) {
-    const isMainConnected = document.getElementById('info-box')?.classList.contains('connected') || false;
-    const tagPresent = !!(
-      document.getElementById('fpc-display')?.textContent?.trim() ||
-      document.getElementById('header-display')?.textContent?.trim()
-    );
-    const mockSensor = (isMainConnected && tagPresent) ? 'ON' : 'OFF';
-    
-    rfidStatus = {
-      fpc: { connected: isMainConnected, sensor: mockSensor },
-      cassette: { connected: isMainConnected, sensor: isMainConnected ? 'ON' : 'OFF' },
-      header: { connected: isMainConnected, sensor: isMainConnected ? 'ON' : 'OFF' }
-    };
-  }
+  if (!rfidStatus) return;
 
-  // Update FPC card (RFID-1)
-  _updateCardStatus('rfid-fpc-reader-status', 'rfid-fpc-sensor-status', rfidStatus.fpc, 'rfid-fpc-reader-text');
-  // Update Cassette card (RFID-2)
-  _updateCardStatus('rfid-cassette-reader-status', null, rfidStatus.cassette, 'rfid-cassette-reader-text');
-  // Update Header card (RFID-3)
-  _updateCardStatus('rfid-header-reader-status', null, rfidStatus.header, 'rfid-header-reader-text');
+  // Update RFID-1 (Cassette)
+  if (rfidStatus.cassette) {
+    _updateCardStatus('rfid-cassette-reader-status', null, rfidStatus.cassette, 'rfid-cassette-reader-text');
+  }
+  // Update RFID-2 (FPC)
+  if (rfidStatus.fpc) {
+    _updateCardStatus('rfid-fpc-reader-status', 'rfid-fpc-sensor-status', rfidStatus.fpc, 'rfid-fpc-reader-text');
+  }
+  // Update RFID-3 (Header)
+  if (rfidStatus.header) {
+    _updateCardStatus('rfid-header-reader-status', null, rfidStatus.header, 'rfid-header-reader-text');
+  }
 }
 
 function _updateCardStatus(readerId, sensorId, status, readerTextId) {
@@ -556,7 +557,7 @@ function _updateCardStatus(readerId, sensorId, status, readerTextId) {
     const svgIcon = isConn
       ? `<svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="10" fill="#22c55e"/><path d="M9 12l2 2 4-4" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
       : `<svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="10" fill="#ef4444"/><path d="M15 9l-6 6M9 9l6 6" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-    
+
     if (readerEl.innerHTML !== svgIcon) {
       readerEl.innerHTML = svgIcon;
     }
@@ -886,7 +887,7 @@ async function updateAgvFromRemote() {
               timestamp: new Date().toISOString()
             });
           }
-          
+
           if (typeof LAST_AGV_STATUS === 'object' && LAST_AGV_STATUS) {
             LAST_AGV_STATUS[id] = {
               connected: true,
@@ -962,7 +963,7 @@ function loadLogs() {
 }
 
 function searchLogs() {
-  const preserveInputs = Array.from(document.querySelectorAll('.search-section input'))
+  const preserveInputs = Array.from(document.querySelectorAll('.search-section input, .search-section select'))
     .map(el => [el.id, el.value]);
   const fpcSearch = document.getElementById('search-fpc').value;
   const dateSearch = document.getElementById('search-date').value;
@@ -971,6 +972,7 @@ function searchLogs() {
   const machineSearch = document.getElementById('search-machine').value.trim();
   const headerSearch = document.getElementById('search-header').value.trim();
   const agvSearch = document.getElementById('search-agv').value.trim();
+  const resultSearch = document.getElementById('search-result')?.value || 'all';
 
   const params = new URLSearchParams();
   if (fpcSearch) params.append('fpc_id', fpcSearch);
@@ -980,6 +982,8 @@ function searchLogs() {
   if (machineSearch) params.append('machine_no', machineSearch);
   if (headerSearch) params.append('header_id', headerSearch);
   if (agvSearch) params.append('agv_no', agvSearch);
+  if (resultSearch && resultSearch !== 'all') params.append('result_filter', resultSearch);
+
   const base = USE_MAIN_FOR_LOGS ? MAIN_API : '';
   const url = base ? `${base}api/search_logs?${params.toString()}` : `/api/search_logs?${params.toString()}`;
   fetch(url, { mode: USE_MAIN_FOR_LOGS ? 'cors' : 'same-origin' })
@@ -1011,6 +1015,7 @@ function clearSearch() {
   document.getElementById('search-machine').value = '';
   document.getElementById('search-header').value = '';
   document.getElementById('search-agv').value = '';
+  if (document.getElementById('search-result')) document.getElementById('search-result').value = 'all';
   currentPage = 1;
   loadLogs();
 }
@@ -1021,8 +1026,14 @@ function displayLogs(data) {
     showNoDataMessage('No logs found');
     return;
   }
-  tableBody.innerHTML = data.map(log => `
-        <tr>
+  tableBody.innerHTML = data.map(log => {
+    const isMismatch = Boolean(log.isMismatch);
+    const statusBadge = isMismatch
+      ? `<span class="badge-result badge-result-mismatch">❌ Mismatch (ผิดคู่)</span>`
+      : `<span class="badge-result badge-result-match">✓ Match (ถูกต้อง)</span>`;
+
+    return `
+        <tr title="${isMismatch ? 'Warning: FPC and Header Mismatch' : 'Valid Tag Pair'}">
             <td>${log.lotId || ''}</td>
             <td>${log.batchId || ''}</td>
             <td>${log.fpcId || ''}</td>
@@ -1030,8 +1041,10 @@ function displayLogs(data) {
             <td>${log.timestamp || ''}</td>
             <td>${log.agvNo || ''}</td>
             <td>${log.machineNo || ''}</td>
+            <td>${statusBadge}</td>
         </tr>
-    `).join('');
+    `;
+  }).join('');
 }
 
 // --- Auto-refresh logs every 5 seconds ---
@@ -1045,7 +1058,10 @@ function anyLogFilterFilled() {
     'search-lot', 'search-batch', 'search-machine',
     'search-header', 'search-agv'
   ];
-  return ids.some(id => (document.getElementById(id)?.value || '').trim() !== '');
+  const hasText = ids.some(id => (document.getElementById(id)?.value || '').trim() !== '');
+  const resVal = document.getElementById('search-result')?.value;
+  const hasSelect = resVal && resVal !== 'all';
+  return hasText || hasSelect;
 }
 
 function anyCassetteLogFilterFilled() {
@@ -1514,28 +1530,26 @@ function showLoginOnly() {
   if (input) input.value = '';
   if (errorMessage) errorMessage.style.display = 'none';
 
+  // Restore sidebar menu bar
+  const navPanel = document.querySelector('.nav-panel');
+  if (navPanel) navPanel.style.display = 'flex';
+
   // Force clean state each time
   localStorage.removeItem('role');
   localStorage.removeItem('loggedIn');
   applyRoleLock();
 }
 
-// --- [COMMENTED OUT] Old showSettingsOnly function ---
-/*
+// --- [NEW] Updated showSettingsOnly function to pre-populate machine name and hide sidebar ---
 function showSettingsOnly() {
   const login = document.getElementById('loginScreen');
   const settings = document.getElementById('settingsScreen');
   if (login) login.style.display = 'none';
   if (settings) settings.style.display = 'block';
-}
-*/
 
-// --- [NEW] Updated showSettingsOnly function to pre-populate machine name ---
-function showSettingsOnly() {
-  const login = document.getElementById('loginScreen');
-  const settings = document.getElementById('settingsScreen');
-  if (login) login.style.display = 'none';
-  if (settings) settings.style.display = 'block';
+  // Hide sidebar menu bar during Settings mode
+  const navPanel = document.querySelector('.nav-panel');
+  if (navPanel) navPanel.style.display = 'none';
 
   // Pre-populate input field from the home page title
   const mainTitle = document.getElementById('main-machine-title');
@@ -1567,7 +1581,7 @@ function updateMachineName() {
     .then(data => {
       if (data.status === 'success') {
         alert("Machine name updated successfully!");
-        
+
         // Dynamically update main title header
         const mainTitle = document.getElementById('main-machine-title');
         if (mainTitle) {
@@ -1686,14 +1700,18 @@ async function logout(e) {
     login.style.display = 'block';
   }
 
+  // Restore sidebar menu bar
+  const navPanel = document.querySelector('.nav-panel');
+  if (navPanel) navPanel.style.display = 'flex';
+
   // reset login form bits
   const input = document.getElementById('employeeId');
   const err = document.getElementById('errorMessage');
   if (input) input.value = '';
   if (err) err.style.display = 'none';
 
-  // OPTIONAL: if you want to leave Settings, jump back to Home
-  // switchPage('home');
+  // Return to Home page automatically
+  switchPage('home');
 }
 
 
@@ -1757,7 +1775,7 @@ function loadSettingsLog(page = 1) {
     .then(r => r.json())
     .then(data => {
       if (data.status !== 'success') return;
-      
+
       // Update record count display
       const countEl = document.getElementById('syslog-record-count');
       if (countEl) {
@@ -2103,6 +2121,7 @@ let __pmPreKey = null;            // identifies the current prewarning tag
 let __pmPreTimer = null;          // re-pop timer for prewarning (optional)
 
 function showPmPrewarning(detailText) {
+  if (getActivePageId() !== 'home') return;
   const modal = document.getElementById('pm-prewarn');
   const detail = document.getElementById('pm-prewarn-detail');
   if (detail) detail.textContent = detailText || '';
@@ -2126,19 +2145,49 @@ function clearPmPrewarningState() {
   }
 }
 
-function _ensureWarningBadge(boxEl) {
+function _updateInfoBoxBadge(boxEl, type, text) {
+  if (!boxEl) boxEl = document.getElementById('info-box');
   if (!boxEl) return null;
+
   let badge = boxEl.querySelector('.warning-badge');
+
+  // If type is 'none' or no text, remove badge
+  if (!type || type === 'none' || !text) {
+    if (badge) badge.remove();
+    return null;
+  }
+
   if (!badge) {
     badge = document.createElement('div');
-    badge.className = 'warning-badge';
-    // simple inline icon (triangle) + text
-    badge.innerHTML = '⚠️ PM Required';
-    // make sure the box is relatively positioned so badge anchors correctly
     boxEl.style.position = boxEl.style.position || 'relative';
     boxEl.appendChild(badge);
   }
+
+  // Set type classes (badge-danger, badge-warning, badge-success)
+  badge.className = `warning-badge badge-${type}`;
+
+  // Choose icon
+  let icon = '⚠️';
+  if (type === 'danger' && text.includes('MISMATCH')) icon = '❌';
+  else if (type === 'success') icon = '✓';
+
+  badge.innerHTML = `${icon} ${text}`;
+  badge.title = type === 'success' ? 'Tag Pair Valid' : 'Click to view warning details';
+
+  // Click badge to reopen pop-up modal
+  badge.onclick = (e) => {
+    e.stopPropagation();
+    if (type === 'danger' || type === 'warning') {
+      const isMis = text && text.includes('MISMATCH');
+      showPmWarning(window.__pmDetailText || `${text} occurred. Please check configuration.`, { type: isMis ? 'mismatch' : 'touchdown', force: true });
+    }
+  };
+
   return badge;
+}
+
+function _ensureWarningBadge(boxEl, text) {
+  return _updateInfoBoxBadge(boxEl, 'danger', text || 'PM Required');
 }
 
 // optional: short attention beep using Web Audio (no external files)
@@ -2160,64 +2209,83 @@ function _beep() {
   } catch (_) { }
 }
 
-function showPmWarning(detailText) {
+function showPmWarning(detailText, options = {}) {
   const modal = document.getElementById('pm-warning');
-  const detail = document.getElementById('pm-warning-detail');
-  if (detail) detail.textContent = detailText || '';
+  const headerEl = document.getElementById('pm-warning-header-title');
+  const iconEl = document.getElementById('pm-warning-icon');
+  const titleEl = document.getElementById('pm-warning-title');
+  const textEl = document.getElementById('pm-warning-text');
+  const detailEl = document.getElementById('pm-warning-detail');
+
+  // Determine alert type: 'mismatch' vs 'touchdown'
+  const isMismatch = options.type === 'mismatch' || (detailText && (detailText.includes('NOT matching') || detailText.includes('MISMATCH') || detailText.includes('different FPC')));
+
+  if (isMismatch) {
+    if (headerEl) headerEl.textContent = 'Mismatch Alert';
+    if (iconEl) iconEl.textContent = '❌';
+    if (titleEl) titleEl.textContent = 'FPC & Header Mismatch';
+    if (textEl) {
+      textEl.innerHTML = `
+        <p>The scanned FPC and Header are <strong>NOT matching together</strong>.</p>
+        <p>Please check the pairing or replace with the correct card before starting a new lot.</p>
+      `;
+    }
+  } else {
+    if (headerEl) headerEl.textContent = 'Maintenance Required';
+    if (iconEl) iconEl.textContent = '⚠️';
+    if (titleEl) titleEl.textContent = 'Touchdown Limit Exceeded';
+    if (textEl) {
+      textEl.innerHTML = `
+        <p>PM is <strong>REQUIRED</strong> before starting a new lot.</p>
+        <p>Please remove FPC and Header from Prober Machine.</p>
+      `;
+    }
+  }
+
+  if (detailEl) detailEl.textContent = detailText || '';
 
   // Keep the home info box in warning state
   const box = document.getElementById('info-box');
   if (box) {
     box.classList.add('warning-active');
     box.classList.remove('tag-active');        // never green while warning
-    _ensureWarningBadge(box);
+    _updateInfoBoxBadge(box, 'danger', isMismatch ? 'MISMATCH' : 'TOUCHDOWN EXCEEDED');
   }
 
   if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
   _beep();
 
-  if (modal) modal.style.display = 'flex';
+  window.__pmModalOpen = true;
+
+  // ONLY show modal if currently on Home page or forced (e.g. badge clicked)
+  if (getActivePageId() === 'home' || options.force) {
+    if (modal) modal.style.display = 'flex';
+  } else {
+    if (modal) modal.style.display = 'none';
+  }
 }
 
 function hidePmWarning() {
+  window.__pmModalOpen = false;
   const modal = document.getElementById('pm-warning');
   if (modal) modal.style.display = 'none';
 
-  // IMPORTANT: Do NOT clear warning state. Keep yellow on box.
+  // IMPORTANT: Keep warning border on the box so the operator sees the warning state
   const box = document.getElementById('info-box');
   if (box) {
     box.classList.add('warning-active');
-    _ensureWarningBadge(box);
   }
 }
 
 function schedulePmReshow() {
-  // Don’t stack multiple timers
-  if (__pmReshowTimer) return;
-
-  __pmReshowTimer = setTimeout(() => {
-    __pmReshowTimer = null;
-
-    const box = document.getElementById('info-box');
-    const stillWarning = box && box.classList.contains('warning-active');
-    const modal = document.getElementById('pm-warning');
-    const modalHidden = modal && modal.style.display !== 'flex';
-
-    // If we’re still in warning state for the same tag, re-open
-    if (stillWarning && __pmWarnKey && modalHidden) {
-      showPmWarning(__pmDetailText);
-    }
-
-    // Keep scheduling as long as warning persists
-    if (stillWarning && __pmWarnKey) {
-      schedulePmReshow();
-    }
-  }, 10000); // 10 seconds
+  // Disabled auto-reshow to prevent annoying flashing
+  return;
 }
 
 
 function maybeWarnOnTouchdown(rfidData) {
   const td = Number(rfidData?.touchdown ?? 0);
+  const box = document.getElementById('info-box');
   if (!Number.isFinite(td)) {
     clearPmPrewarningState();
     clearPmWarningState();
@@ -2227,8 +2295,7 @@ function maybeWarnOnTouchdown(rfidData) {
   // Build a unique key per read (same pattern as your big warning)
   const key = [
     rfidData?.fpc_id || '',
-    rfidData?.header_name || rfidData?.header_id || '',
-    rfidData?.timestamp || ''
+    rfidData?.header_name || rfidData?.header_id || ''
   ].join('|');
 
   // If hard limit reached/exceeded → use the existing BIG warning flow
@@ -2241,16 +2308,14 @@ function maybeWarnOnTouchdown(rfidData) {
     if (key && key !== __pmWarnKey) {
       __pmWarnKey = key;
       __pmDetailText = msg;
-      showPmWarning(msg);
+      showPmWarning(msg, { type: 'touchdown' });
     } else {
-      const box = document.getElementById('info-box');
       if (box) {
         box.classList.add('warning-active');
         box.classList.remove('tag-active');
-        _ensureWarningBadge(box);
       }
     }
-    schedulePmReshow(); // you already do this for the big warning (10s)
+    if (box) _updateInfoBoxBadge(box, 'danger', 'TOUCHDOWN EXCEEDED');
     return;
   }
 
@@ -2266,6 +2331,7 @@ function maybeWarnOnTouchdown(rfidData) {
       if (modal) modal.dataset.lastDetail = msg;
       showPmPrewarning(msg);
     }
+    if (box) _updateInfoBoxBadge(box, 'warning', 'TD NEARING LIMIT');
     // also make sure BIG warning state is cleared in case we just dipped below
     clearPmWarningState();
     return;
@@ -2277,24 +2343,23 @@ function maybeWarnOnTouchdown(rfidData) {
 }
 
 function clearPmWarningState() {
-  // close modal
-  const modal = document.getElementById('pm-warning');
-  if (modal) modal.style.display = 'none';
+  // ONLY auto-close modal if user already dismissed it (__pmModalOpen == false)
+  if (!window.__pmModalOpen) {
+    const modal = document.getElementById('pm-warning');
+    if (modal) modal.style.display = 'none';
+  }
 
-  // remove yellow state + badge
+  // remove yellow state + badge only if user dismissed modal
   const box = document.getElementById('info-box');
-  if (box) {
+  if (box && !window.__pmModalOpen) {
     box.classList.remove('warning-active', 'tag-active');
-    const badge = box.querySelector('.warning-badge');
-    if (badge) badge.remove();
+    _updateInfoBoxBadge(box, 'none');
   }
 
   // reset keys & timers
-  __pmWarnKey = null;
-  __pmDetailText = '';
-  if (__pmReshowTimer) {
-    clearTimeout(__pmReshowTimer);
-    __pmReshowTimer = null;
+  if (!window.__pmModalOpen) {
+    __pmWarnKey = null;
+    __pmDetailText = '';
   }
 }
 
@@ -2876,9 +2941,9 @@ document.addEventListener('app:stateChanged', () => {
 });
 
 // ============================================================================
-// MOCK UP PMI: Automatic status transition simulation loop
-// Cycles every 5 seconds: WAITING (empty) -> PASSED (green) -> FAILED (red)
+// MOCK UP PMI: Automatic status transition simulation loop (DISABLED FOR REAL TESTING)
 // ============================================================================
+/*
 (function() {
   let currentPmiState = 0; // 0 = WAITING, 1 = PASSED, 2 = FAILED
   const testFileName = "20260505114649_TR7A9073W25C5_X37Y2_S10_P15_NM_29D5B0FBAA-PC611_300.bmp";
@@ -2955,3 +3020,238 @@ document.addEventListener('app:stateChanged', () => {
     setInterval(simulatePmiTransition, 5000);
   });
 })();
+*/
+
+// ============================================================================
+// PMI FILENAME PARSER: Parses raw image filename into 7 distinct data fields
+// Pattern: [Date][Time]_[Batch#]-[Wafer#,checksum]_[XY]_[Site]_[Pad]_[Status]_[ProductSetup]_[Temp].bmp
+// ============================================================================
+function parsePmiFilename(rawFilename) {
+  if (!rawFilename || typeof rawFilename !== 'string') return;
+
+  let dateTimeStr = '—';
+  let batchStr = '—';
+  let waferCheckStr = '—';
+  let xyStr = '—';
+  let sitePadStr = '—';
+  let productSetupStr = '—';
+  let tempStr = '—';
+
+  // Strip file extension if present (.bmp, .png, etc.)
+  const cleanName = rawFilename.split('.')[0];
+  const parts = cleanName.split('_');
+
+  // 1. Date & Time (e.g. 20260505114649 or 20250909102410)
+  if (parts.length > 0 && parts[0].length >= 14) {
+    const d = parts[0];
+    const year = d.substring(0, 4);
+    const month = d.substring(4, 6);
+    const day = d.substring(6, 8);
+    const hour = d.substring(8, 10);
+    const min = d.substring(10, 12);
+    const sec = d.substring(12, 14);
+    dateTimeStr = `${year}-${month}-${day} ${hour}:${min}:${sec}`;
+  } else if (parts.length > 0) {
+    dateTimeStr = parts[0];
+  }
+
+  // 2 & 3. Batch# and Wafer#/Checksum (e.g. SUC720-15F0 or TR7A9073W25C5)
+  if (parts.length > 1) {
+    const subPart = parts[1];
+    if (subPart.includes('-')) {
+      const subSplit = subPart.split('-');
+      batchStr = subSplit[0] || '—';
+      waferCheckStr = subSplit[1] || '—';
+    } else {
+      batchStr = subPart.substring(0, 8) || subPart;
+      waferCheckStr = subPart.substring(8) || '—';
+    }
+  }
+
+  // 4. XY Coordinate (e.g. X114Y12 or X37Y2)
+  if (parts.length > 2) {
+    xyStr = parts[2];
+  }
+
+  // 5. Site# & Pad# (e.g. S32 and P1 or S10 and P15)
+  let siteVal = '';
+  let padVal = '';
+  if (parts.length > 3) siteVal = parts[3];
+  if (parts.length > 4) padVal = parts[4];
+  if (siteVal || padVal) {
+    sitePadStr = `${siteVal} / ${padVal}`.trim();
+  }
+
+  // 6. Product setup file name (e.g. TF1581DTAB-VL421 or 29D5B0FBAA-PC611)
+  if (parts.length > 6) {
+    productSetupStr = parts[6];
+  } else if (parts.length > 5) {
+    productSetupStr = parts[5];
+  }
+
+  // 7. Temp (e.g. 300)
+  if (parts.length > 7) {
+    tempStr = parts[7];
+  } else if (parts.length > 6 && !isNaN(parts[6])) {
+    tempStr = parts[6];
+  }
+
+  // Safely update DOM elements
+  const elDateTime = document.getElementById('pmi-field-datetime');
+  const elBatch = document.getElementById('pmi-field-batch');
+  const elWafer = document.getElementById('pmi-field-wafer');
+  const elBatchWafer = document.getElementById('pmi-field-batch-wafer');
+  const elXY = document.getElementById('pmi-field-xy');
+  const elSitePad = document.getElementById('pmi-field-sitepad');
+  const elSetup = document.getElementById('pmi-field-setup');
+  const elTemp = document.getElementById('pmi-field-temp');
+
+  if (elDateTime) elDateTime.textContent = dateTimeStr;
+  if (elBatch) elBatch.textContent = batchStr;
+  if (elWafer) elWafer.textContent = waferCheckStr;
+  if (elBatchWafer) {
+    const combined = (batchStr !== '—' && waferCheckStr !== '—') ? `${batchStr}-${waferCheckStr}` : (batchStr !== '—' ? batchStr : waferCheckStr);
+    elBatchWafer.textContent = combined;
+  }
+  if (elXY) elXY.textContent = xyStr;
+  if (elSitePad) elSitePad.textContent = sitePadStr;
+  if (elSetup) elSetup.textContent = productSetupStr;
+  if (elTemp) elTemp.textContent = tempStr;
+}
+
+// Auto-run parser on page load & observe filename display changes
+document.addEventListener('DOMContentLoaded', () => {
+  const displayEl = document.getElementById('pmi-filename-display');
+  if (displayEl) {
+    parsePmiFilename(displayEl.textContent.trim());
+
+    // Observe dynamic text changes to update 7 fields instantly
+    const observer = new MutationObserver(() => {
+      parsePmiFilename(displayEl.textContent.trim());
+    });
+    observer.observe(displayEl, { childList: true, characterData: true, subtree: true });
+  }
+});
+
+// ============================================================================
+// SENSOR SIMULATION CONTROL (ระบบควบคุมเซนเซอร์จำลอง FPC ผ่าน UI และคีย์บอร์ด)
+// ============================================================================
+/**
+ * ฟังก์ชันสำหรับสลับสถานะ Sensor (ON <-> OFF)
+ * 1. เรียกใช้งานเมื่อคลิกที่ป้าย 'OFF / ON' บนการ์ด RFID-2 (FPC)
+ * 2. เรียกใช้งานเมื่อกดปุ่ม 't' หรือ 'T' บนคีย์บอร์ด
+ * 
+ * กลไกการทำงาน:
+ * - เมื่อ Sensor เป็น 'ON' : หัวอ่าน FPC (COM6) จะเปิดรอบสแกน 8 วินาทีเพื่ออ่านแท็ก
+ * - เมื่อ Sensor เป็น 'OFF': เสมือนดึงแผ่น FPC ออก ข้อมูลในช่อง FPC จะถูกเคลียร์กลับเป็นค่าว่างทันที
+ */
+window.toggleSensorSimulator = function () {
+  fetch('/api/toggle_sensor', { method: 'POST' })
+    .then(r => r.json())
+    .then(res => {
+      console.log('[SENSOR SIMULATION] Sensor state toggled:', res);
+      const sensorEl = document.getElementById('rfid-fpc-sensor-status');
+      if (sensorEl && typeof res.sensor_active === 'boolean') {
+        const val = res.sensor_active ? 'ON' : 'OFF';
+        sensorEl.textContent = val;
+        sensorEl.className = 'sensor-value ' + val.toLowerCase();
+      }
+    })
+    .catch(err => console.error('[SENSOR SIMULATION] Failed to toggle:', err));
+};
+
+// ดักฟังสัญญาณปุ่มกด 't' / 'T' บนคีย์บอร์ดเพื่อสั่งงานฟังก์ชัน toggleSensorSimulator
+document.addEventListener('keydown', (e) => {
+  if (e.key === 't' || e.key === 'T') {
+    // ป้องกันการทำงานขณะที่ผู้ใช้กำลังพิมพ์ข้อความในช่อง Input / Textarea
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName)) return;
+    if (typeof window.toggleSensorSimulator === 'function') {
+      window.toggleSensorSimulator();
+    }
+  }
+});
+
+// ============================================================================
+// KEYBOARD WEDGE AUTO-SCANNER FOR CASSETTE RFID (HID OMNIKEY 5127 CK)
+// ============================================================================
+let __rfidBuffer = '';
+let __rfidLastKeyTime = 0;
+let __rfidTimer = null;
+
+window.addEventListener('keydown', (e) => {
+  const now = Date.now();
+  const diff = now - __rfidLastKeyTime;
+  __rfidLastKeyTime = now;
+
+  const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+  const isInputFocused = (activeTag === 'input' || activeTag === 'textarea');
+
+  // Scanner sends keystrokes rapidly (< 60ms between characters)
+  if (diff > 80) {
+    __rfidBuffer = '';
+  }
+
+  // Handle Enter terminator from RFID reader
+  if (e.key === 'Enter') {
+    const scanned = __rfidBuffer.trim();
+    if (scanned.length >= 8) {
+      console.log('[CASSETTE RFID SCANNED]:', scanned);
+      sendCassetteScan(scanned);
+      __rfidBuffer = '';
+      if (isInputFocused) {
+        e.preventDefault();
+      }
+      return;
+    }
+    __rfidBuffer = '';
+    return;
+  }
+
+  // Accumulate single alphanumeric characters
+  if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    __rfidBuffer += e.key;
+
+    if (__rfidTimer) clearTimeout(__rfidTimer);
+
+    // Auto-detect 16-char hex UID (e.g. cdde6b48080104e0) even if no Enter key
+    __rfidTimer = setTimeout(() => {
+      const scanned = __rfidBuffer.trim();
+      if (scanned.length >= 12 && /^[a-fA-F0-9]+$/.test(scanned)) {
+        console.log('[CASSETTE RFID AUTO-DETECTED]:', scanned);
+        sendCassetteScan(scanned);
+        __rfidBuffer = '';
+      }
+    }, 60);
+  }
+});
+
+const THAI_TO_EN_MAP = {
+  'ๆ': 'q', 'ไ': 'w', 'ำ': 'e', 'พ': 'r', 'ะ': 't', 'ั': 'y', 'ี': 'u', 'ร': 'i', 'น': 'o', 'ย': 'p', 'บ': '[', 'ล': ']',
+  'ฟ': 'a', 'ห': 's', 'ก': 'd', 'ด': 'f', 'เ': 'g', '้': 'h', '่': 'j', 'า': 'k', 'ส': 'l', 'ว': ';', 'ง': '\'',
+  'ผ': 'z', 'ป': 'x', 'แ': 'c', 'อ': 'v', 'ิ': 'b', 'ื': 'n', 'ท': 'm', 'ม': ',', 'ใ': '.', 'ฝ': '/',
+  '๑': '@', '๒': '#', '๓': '$', '๔': '%', '๕': '&', '๖': '_', '๗': '+', '๘': '*', '๙': '(', '๐': ')',
+  'ๅ': '1', 'ภ': '4', 'ถ': '5', 'ุ': '6', 'ึ': '7', 'ค': '8', 'ต': '9', 'จ': '0', 'ข': '-', 'ช': '='
+};
+
+function convertThaiKedmaneeToEn(str) {
+  if (!str) return '';
+  return str.split('').map(ch => THAI_TO_EN_MAP[ch] || ch).join('');
+}
+
+function sendCassetteScan(tagId) {
+  const cleanTag = convertThaiKedmaneeToEn(tagId);
+  fetch('/api/cassette/scan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cassette_id: cleanTag })
+  })
+    .then(r => r.json())
+    .then(res => {
+      console.log('[CASSETTE SCAN RESPONSE]:', res);
+      // Refresh current data immediately to show on Home
+      if (typeof fetchCurrentData === 'function') {
+        fetchCurrentData();
+      }
+    })
+    .catch(err => console.error('[CASSETTE SCAN ERROR]:', err));
+}

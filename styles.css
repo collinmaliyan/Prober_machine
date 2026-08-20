@@ -45,18 +45,14 @@ body {
 
 /* --- [NEW] Premium Sleek Minimalist Light Sidebar Layout (Matches AGV HMI Style) --- */
 .nav-panel {
-  width: 175px;
-  /* Sleeker width */
+  width: 185px;
   background-color: #ffffff;
-  /* Premium white background */
-  padding: 20px 12px;
+  padding: 24px 14px;
   display: flex;
   flex-direction: column;
   border-right: 1px solid #cbd5e1;
-  /* Clean light slate border */
   overflow: auto;
-  flex: 0 0 175px;
-  /* Prevent resizing */
+  flex: 0 0 185px;
   transition: background-color 0.3s ease;
 }
 
@@ -115,24 +111,22 @@ body {
 .nav-buttons {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px;
 }
 
-/* --- [NEW] Sleek Minimalist button style with horizontal SVG icons and text (Light Theme) --- */
+/* --- [NEW] Sleek Minimalist button style with horizontal SVG icons and text (Light Theme - Touch Friendly) --- */
 .nav-button {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   background: transparent;
   border: none;
-  height: 52px;
-  /* Compact height for premium look */
-  padding: 10px 14px;
-  font-size: 13.5px;
-  font-weight: 600;
+  height: 70px;
+  padding: 12px 18px;
+  font-size: 16.5px;
+  font-weight: 700;
   color: #64748b;
-  /* Muted slate text label */
-  border-radius: 6px;
+  border-radius: 10px;
   cursor: pointer;
   width: 100%;
   text-align: left;
@@ -142,10 +136,10 @@ body {
 }
 
 .nav-button svg {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   stroke: #64748b;
-  stroke-width: 2.2;
+  stroke-width: 2.4;
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -154,8 +148,7 @@ body {
 }
 
 .nav-button:hover {
-  background-color: rgba(2, 132, 199, 0.04);
-  /* Very light sky blue tint on hover */
+  background-color: rgba(2, 132, 199, 0.06);
   color: #0284c7;
 }
 
@@ -166,9 +159,7 @@ body {
 /* Active Button State with indicator bar and color highlights (Light Sky Blue Theme) */
 .nav-button.active {
   background-color: #e0f2fe;
-  /* Light sky-100 background */
   color: #0284c7;
-  /* Active sky-700 blue text */
 }
 
 .nav-button.active svg {
@@ -181,9 +172,8 @@ body {
   left: 0;
   top: 15%;
   height: 70%;
-  width: 3px;
+  width: 4px;
   background-color: #f97316;
-  /* Active orange vertical line matching AGV HMI */
   border-radius: 0 4px 4px 0;
 }
 
@@ -302,36 +292,62 @@ body {
   margin-top: 4px;
 }
 
-/* Form Elements - Optimized for 1024x600 */
+/* Form Elements - WT-Lot Info High Visibility */
 .form-group {
   display: flex;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   align-items: center;
 }
 
 .form-group label {
   display: inline-block;
-  width: 80px;
-  font-weight: bold;
+  width: 110px;
+  font-weight: 800;
   color: #000000;
-  font-size: 14px;
+  font-size: 16px;
   margin-left: 6px;
   margin-right: 6px;
 }
 
 .display-field {
   display: flex;
-  height: 36px;
-  width: calc(100% - 100px);
-  padding: 8px 10px;
-  background-color: #f9f9f9;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 13px;
-  margin-left: 12px;
-  color: #333;
+  height: 44px;
+  width: calc(100% - 125px);
+  padding: 6px 14px;
+  background-color: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  font-family: 'Consolas', 'Courier New', monospace;
+  margin-left: 8px;
+  color: #0f172a;
   justify-content: space-between;
   align-items: center;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Special Expanded Multi-line Layout for Comment Field */
+.form-group:has(#comment-display) {
+  align-items: flex-start;
+}
+
+.form-group:has(#comment-display) label {
+  padding-top: 8px;
+}
+
+#comment-display {
+  height: auto;
+  min-height: 85px;
+  max-height: 115px;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  display: block;
+  padding: 8px 12px;
 }
 
 /* Button Styles */
@@ -384,47 +400,48 @@ body {
 #home .info-box {
   width: 100%;
   max-width: none;
-  background-color: white;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
-  /* --- [COMMENTED OUT] Old padding --- */
-  /* padding: 20px; */
-  /* --- [NEW] Adjusted padding to give 45px bottom space for reader status text --- */
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
   padding: 20px 20px 20px 20px;
-  /* --- [NEW] Enable relative positioning to anchor absolute child elements --- */
   position: relative;
   transition: background-color .2s ease, border-color .2s ease, box-shadow .2s ease, outline-color .2s ease;
   overflow-y: auto;
   box-sizing: border-box;
   flex: 1;
-  /* Stretch to align with PMI box */
 }
 
 
 /* Titles */
 #home .info-box-title {
   text-align: center;
-  font-weight: 700;
-  color: #333;
-  font-size: 16px;
+  font-weight: 800;
+  color: #000000;
+  font-size: 22px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
 }
 
 /* Home page connection status styling */
 #home .info-box.connected,
 #home .right-box.connected {
-  background: #f2f2f2;
-  border: 1px solid #ddd;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
 }
 
 #home .info-box.disconnected,
 #home .right-box.disconnected {
-  background: #ff5757;
-  box-shadow: 0 0 0 2px rgba(220, 53, 69, .12) inset;
+  background: #ff5757 !important;
+  box-shadow: 0 0 0 2px rgba(220, 53, 69, .12) inset !important;
 }
 
 #home .info-box.tag-active,
 #home .right-box.tag-active {
-  background-color: lightgreen;
-  border: 2px solid #28a745;
+  background: #90ee90 !important;
+  border: 2px solid #28a745 !important;
 }
 
 /* Yellow warning state must override green */
@@ -550,18 +567,31 @@ body {
 }
 
 .sensor-value {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  display: inline-block;
+  transition: all 0.2s ease;
 }
 
 .sensor-value.on {
-  color: #2563eb;
-  /* Blue 'ON' */
+  color: #16a34a;
+  background-color: #dcfce7;
+  border: 1px solid #86efac;
 }
 
 .sensor-value.off {
   color: #64748b;
-  /* Grey 'OFF' */
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+}
+
+.sensor-value:hover {
+  transform: scale(1.08);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12);
 }
 
 
@@ -581,7 +611,7 @@ body {
   width: 100%;
   background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
   border-radius: 6px;
-  padding: 20px;
+  padding: 12px 16px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -595,42 +625,37 @@ body {
 .pmi-box-title {
   text-align: center;
   font-weight: 800;
-  color: #000000;
-  /* Pure black as requested */
-  margin-bottom: 15px;
-  font-size: 18px;
-  /* Increased font size */
+  color: #475569;
+  margin-bottom: 6px;
+  font-size: 14px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
   border-bottom: 1px solid #cbd5e1;
   width: 100%;
-  padding-bottom: 8px;
+  padding-bottom: 4px;
 }
 
 /* Container for both frames */
 .pmi-frames-container {
   display: flex;
   flex-direction: row;
-  /* Layout side-by-side horizontally */
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  /* Adjusted gap to save space */
+  gap: 14px;
   width: 100%;
-  flex: 1;
-  margin: auto 0;
+  flex: 0 0 auto;
+  margin: 6px 0;
 }
 
 /* Outer Square Box (Brushed Metal / Grey Panel look) - Scaled for horizontal dual screens */
 .pmi-outer-frame {
   width: 100%;
-  max-width: 300px;
-  /* Increased from 250px to allow larger scaling on high-res monitors */
+  max-width: 290px;
   aspect-ratio: 1 / 1;
   background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
   border: 3px solid #94a3b8;
   border-radius: 8px;
-  padding: 10px;
+  padding: 4px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -643,16 +668,14 @@ body {
   width: 100%;
   height: 100%;
   background-color: #0f172a;
-  /* Dark background */
   border: 2px solid #475569;
-  /* Slate border */
   border-radius: 4px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.8);
-  padding: 10px;
+  padding: 2px;
   position: relative;
   overflow: hidden;
 }
@@ -895,25 +918,20 @@ body {
 /* PMI Top Status Bar */
 .pmi-status-bar {
   width: 100%;
-  height: 65px; /* Increased from 52px to expand downwards */
-  /* Increased from 40px for higher visibility and layout balance */
+  height: 96px;
   background-color: #5f7287;
-  /* Default fallback color */
   color: #ffffff;
-  font-size: 24px; /* Increased from 20px for readability with larger height */
-  /* Scaled up from 16px */
-  font-weight: 800;
+  font-size: 42px;
+  font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 2.5px;
-  /* Increased spacing for prominent font appearance */
+  letter-spacing: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  /* Scaled up from 4px */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 2px 4px rgba(0, 0, 0, 0.15);
-  margin-top: 10px;
-  margin-bottom: 15px;
+  border-radius: 10px;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.25), 0 5px 12px rgba(0, 0, 0, 0.22);
+  margin-top: 0;
+  margin-bottom: 16px;
   box-sizing: border-box;
   transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
@@ -926,14 +944,12 @@ body {
 /* Success Status */
 .pmi-status-bar.passed {
   background-color: #16a34a;
-  /* Cyber green */
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 10px rgba(22, 163, 74, 0.4);
 }
 
 /* Failure / Warning Status */
 .pmi-status-bar.failed {
   background-color: #dc2626;
-  /* Crimson warning red */
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 10px rgba(220, 38, 38, 0.4);
   animation: pmi-glow-red 1.5s infinite alternate ease-in-out;
 }
@@ -948,33 +964,29 @@ body {
   }
 }
 
-/* Long File Name Display under PMI viewports */
+/* Long File Name Display under PMI viewports (Legacy / Hidden) */
 .pmi-filename-box {
   display: flex;
   align-items: center;
   width: 100%;
   box-sizing: border-box;
-  margin-top: 15px;
+  margin-top: 8px;
   gap: 10px;
 }
 
 .pmi-filename-label {
   font-weight: bold;
   color: #000;
-  font-size: 14px;
-  /* Increased from 13px */
+  font-size: 13px;
   white-space: nowrap;
 }
 
 .pmi-filename-display {
   flex: 1;
-  height: 42px;
-  /* Increased from 36px */
-  padding: 8px 12px;
-  font-size: 14px;
-  /* Increased from 11px for operator visibility */
+  height: 36px;
+  padding: 6px 10px;
+  font-size: 13px;
   font-weight: 600;
-  /* Made semi-bold for clarity */
   font-family: monospace;
   line-height: 1.2;
   background-color: #f9f9f9;
@@ -986,23 +998,58 @@ body {
   white-space: nowrap;
   color: #334155;
   box-sizing: border-box;
-  /* Custom scrollbar styling for neatness */
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
 }
 
-.pmi-filename-display::-webkit-scrollbar {
-  height: 4px;
+/* PMI Parsed Data Fields Grid (Expanded 2-Column x 3-Row High Impact Layout) */
+.pmi-parsed-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 18px;
 }
 
-.pmi-filename-display::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
-  border-radius: 2px;
+.pmi-data-card {
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+  min-height: 78px;
+  box-sizing: border-box;
 }
 
-.construction-sign {
-  box-shadow: 0 0 15px rgba(250, 204, 21, 0.3), 0 4px 10px rgba(0, 0, 0, 0.6);
-  z-index: 3;
+.pmi-data-card:hover {
+  border-color: #0284c7;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.18);
+  transform: translateY(-1px);
+}
+
+.pmi-card-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+}
+
+.pmi-card-value {
+  font-size: 22px;
+  font-weight: 900;
+  color: #0f172a;
+  font-family: 'Consolas', 'Courier New', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 /* ============================================================================
@@ -1546,6 +1593,43 @@ body {
   background-color: #fdfdfd;
 }
 
+/* Result Pill Badges in Log Table */
+.badge-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.badge-result-match {
+  background: #e8f5e9;
+  color: #1b5e20;
+  border: 1px solid #c8e6c9;
+}
+
+.badge-result-mismatch {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ffcdd2;
+}
+
+.search-select {
+  cursor: pointer;
+  background-color: #ffffff;
+  font-weight: 600;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  min-width: 140px;
+}
+
 /* Table Info & Pagination */
 .table-info {
   display: flex;
@@ -1909,9 +1993,12 @@ body {
   left: 15px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 22px;
+  font-size: 24px;
   font-weight: bold;
   color: #333;
+  cursor: pointer !important;
+  z-index: 100 !important;
+  pointer-events: auto !important;
 }
 
 
@@ -2206,78 +2293,95 @@ body {
 /* Adaptive scaling for small screen resolutions (e.g. 1024x600, 800x480 HMI panels) */
 @media (max-width: 1024px) {
   .container {
-    flex-direction: row !important; /* Force sidebar to stay on the left */
+    flex-direction: row !important;
+    /* Force sidebar to stay on the left */
   }
+
   .nav-panel {
     width: 140px !important;
     flex: 0 0 140px !important;
     padding: 12px 8px !important;
   }
+
   .nav-buttons {
     flex-direction: column !important;
     gap: 6px !important;
   }
+
   .nav-button {
     padding: 10px 8px !important;
     font-size: 12px !important;
   }
+
   .nav-button svg {
     width: 16px !important;
     height: 16px !important;
     margin-right: 6px !important;
   }
+
   .logo img {
     max-width: 70px !important;
   }
+
   .sub-head {
     font-size: 10px !important;
   }
-  
+
   /* Home Page Layout Adjustments */
   #home .content-boxes {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
     gap: 8px !important;
     height: calc(100vh - 85px) !important;
   }
-  .info-box, .pmi-box {
+
+  .info-box,
+  .pmi-box {
     padding: 12px !important;
   }
-  
+
   /* PMI Viewport and Bar Scaling */
   .pmi-outer-frame {
     max-width: 220px !important;
   }
+
   .pmi-status-bar {
-    height: 50px !important; /* Increased from 40px to expand downwards on small screens */
-    font-size: 20px !important; /* Increased from 16px to scale with height */
+    height: 50px !important;
+    /* Increased from 40px to expand downwards on small screens */
+    font-size: 20px !important;
+    /* Increased from 16px to scale with height */
   }
+
   .pmi-filename-box {
     margin-top: 10px !important;
   }
+
   .pmi-filename-display {
     height: 34px !important;
     font-size: 12px !important;
     padding: 6px 10px !important;
   }
-  
+
   /* Viewport internal overlays */
   .camera-status-tag {
     padding: 2px 4px !important;
     font-size: 8px !important;
   }
+
   .camera-coords {
     font-size: 8px !important;
   }
-  
+
   /* Under Construction Warning diamond dynamic scaling */
   .construction-sign {
     width: 100px !important;
     height: 100px !important;
   }
+
   .construction-icon {
     width: 28px !important;
     height: 28px !important;
   }
+
   .sign-text {
     font-size: 8px !important;
   }
@@ -2289,30 +2393,38 @@ body {
     flex: 0 0 120px !important;
     padding: 8px 4px !important;
   }
+
   .nav-button {
     font-size: 11px !important;
     padding: 8px 6px !important;
   }
+
   .nav-button svg {
     margin-right: 4px !important;
   }
+
   .logo img {
     max-width: 55px !important;
   }
+
   .pmi-outer-frame {
     max-width: 160px !important;
   }
+
   .pmi-frames-container {
     gap: 6px !important;
   }
+
   .construction-sign {
     width: 75px !important;
     height: 75px !important;
   }
+
   .construction-icon {
     width: 22px !important;
     height: 22px !important;
   }
+
   .sign-text {
     font-size: 6.5px !important;
   }
@@ -2329,53 +2441,87 @@ body {
   /* a couple of shakes */
 }
 
-/* --- [NEW] Styling the warning badge container for "PM Required" alert --- */
-/* This styles the badge as a solid red alert pill with white text so it stands out on any background color */
+/* --- Info Box Status Notification Badges (Top-Right) --- */
+.info-box {
+  position: relative !important;
+}
+
 .info-box .warning-badge {
   position: absolute;
-  top: 8px;
-  right: 10px;
+  top: 10px;
+  right: 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 999px;
-  /* Capsule/pill shape */
-  font-weight: bold;
-  font-size: 12px;
-  background-color: #dc3545;
-  /* Solid alert red background */
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  user-select: none;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.info-box .warning-badge:hover {
+  transform: translateY(-2px) scale(1.08) !important;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.35) !important;
+}
+
+.info-box .warning-badge:active {
+  transform: translateY(0) scale(0.96) !important;
+}
+
+.info-box .warning-badge.badge-danger {
+  background: linear-gradient(135deg, #dc3545, #b02a37);
   color: #ffffff !important;
-  /* Clear white text for high contrast */
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-  user-select: none;
-  animation: warning-pulse 1.2s ease-in-out infinite;
-  /* Continuous pulsing animation */
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  animation: badge-pulse-red 1.3s ease-in-out infinite;
 }
 
-/* --- [COMMENTED OUT] Old warning-badge styling rules --- */
-/*
-.info-box.warning-active .warning-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 12px;
-  background: #ffbf00;
-  color: #000;
-  box-shadow: 0 0 0 6px rgba(255, 191, 0, 0.18);
-  animation: warning-pulse 1.2s ease-in-out infinite;
-  user-select: none;
+.info-box .warning-badge.badge-warning {
+  background: linear-gradient(135deg, #ffc107, #fd7e14);
+  color: #212529 !important;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  animation: badge-pulse-yellow 1.5s ease-in-out infinite;
 }
 
-.info-box .warning-badge {
-  position: absolute;
-  top: 8px;
-  right: 10px;
+.info-box .warning-badge.badge-success {
+  background: linear-gradient(135deg, #28a745, #20c997);
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
-*/
+
+@keyframes badge-pulse-red {
+
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 2px 6px rgba(220, 53, 69, 0.4);
+  }
+
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 3px 12px rgba(220, 53, 69, 0.7);
+  }
+}
+
+@keyframes badge-pulse-yellow {
+
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 2px 6px rgba(255, 193, 7, 0.4);
+  }
+
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 3px 12px rgba(255, 193, 7, 0.7);
+  }
+}
 
 /* --- PM Prewarning (small modal) --- */
 .prewarn-dialog {
