@@ -26,7 +26,7 @@ graph TB
         R_HDR["RFID #1: Header Reader<br/>(YRM100 / COM4)"]
         R_FPC["RFID #2: FPC Reader + Sensor<br/>(YRM100 / COM6 + GPIO Pin 6)"]
         R_CASS["RFID #3: Cassette Reader<br/>(OMNIKEY / COM7)"]
-        
+      
         App["Python Backend (Main_Prober)<br/>- Data Coordinator & Validation<br/>- Failover & Sync Engine"]
         SQLiteDB[("Local SQLite Database<br/>(Offline Cache สำรองในเครื่อง)")]
         GUI["Web GUI Dashboard<br/>(Port 8001 / Touchscreen HMI)"]
@@ -69,10 +69,10 @@ flowchart TD
         C2["3.2 เซนเซอร์ (SensorGate) ตรวจจับการเสียบ -> หัวอ่าน RFID อ่านรหัสจากชิป"]
         C3["3.3 โค้ดนำรหัสไปค้นหาใน Database (is_active_pair & get_enrichment)"]
         C4{"3.4 ตรวจสอบความถูกต้อง"}
-        
+      
         D1["🟢 เข้ากันได้ (Match OK)<br/>- แสดงสถานะสีเขียวบน GUI (8001)<br/>- ดึงยอด Touchdown, วัน PM, Lot/Batch มาแสดงครบ"]
         D2["🔴 ไม่เข้ากัน (Mismatch)<br/>- แสดงเตือนสีแดง (Mismatch / Not Allowed)<br/>- แจ้งเตือนผู้ปฏิบัติงานห้ามเริ่มรันงาน"]
-        
+      
         C1 --> C2 --> C3 --> C4
         C4 -->|ผ่าน| D1
         C4 -->|ไม่ผ่าน| D2
@@ -95,6 +95,7 @@ flowchart TD
 ## 3. รายละเอียดการทำงานของแต่ละขั้นตอน
 
 ### ขั้นที่ 1: การเตรียมการ์ด (Initial Tag Setup)
+
 * ชิป RFID บนแผ่นการ์ดจะถูกเก็บเฉพาะ **"รหัสบัตรประจำตัว"** สั้นๆ (EPC ASCII):
   * **แผ่น FPC:** บันทึกรหัส `fpc_id` (เช่น `P13080-FHB-0364`)
   * **แผ่น Header:** บันทึกรหัส `header_id` (เช่น `H13080-PHS-11`)
@@ -103,12 +104,14 @@ flowchart TD
 ---
 
 ### ขั้นที่ 2: การเริ่มต้นระบบและการซิงค์ข้อมูล (Startup Sync)
+
 * เมื่อเปิดเครื่อง Prober ระบบจะดึง Master Data จาก **PC Server (PostgreSQL/MariaDB)** มาเซฟทับลงใน **SQLite ในเครื่อง**
 * **ประโยชน์:** เครื่อง Prober จะมีข้อมูลที่อัปเดตล่าสุดอยู่เสมอ และสามารถทำงานต่อได้ 100% ทันทีแม้ในเวลาที่สาย LAN หลุดหรือเซิร์ฟเวอร์หลักปิดปรับปรุง
 
 ---
 
 ### ขั้นที่ 3: การสแกนและตรวจสอบหน้างาน (Live Scanning & Validation)
+
 1. **สัญญาณเซนเซอร์ (Gated Reading):** เมื่อเสียบแผ่น FPC ขาเซนเซอร์จะส่งสัญญาณให้เปิด Time Window (8–10 วินาที) เพื่ออ่านแท็ก FPC
 2. **การจับคู่ (Pair Matching):** ระบบจะนำรหัส `header_id` และ `fpc_id` ไปเทียบกับตาราง `header` และ `fpc_header_allowed`
 3. **การดึงข้อมูลประกอบ (Data Enrichment):**
@@ -121,6 +124,7 @@ flowchart TD
 ---
 
 ### ขั้นที่ 4: การบันทึกและส่งรายงาน (Logging & Synchronization)
+
 1. **One-Shot Log Insert:** ระบบจะบันทึกประวัติลงตาราง `scan_log` อย่างแม่นยำ 1 ครั้งต่อ 1 รอบการเสียบการ์ด
 2. **Background Sync:** เธรด `sync_loop` จะตรวจสอบรายการที่มี `synced = 0` และส่งผ่าน REST API ขึ้นไปยัง PC Server ทุก 10 วินาที
 3. **Daily Backup:** เธรด `BackupManager` จะ Export ข้อมูลการสแกนประจำวันออกมาเป็นไฟล์ `.csv` (Excel-compatible) ตอน 23:59:00 น.
@@ -129,12 +133,12 @@ flowchart TD
 
 ## 4. ตารางเปรียบเทียบหน้าที่: PC Server vs SQLite ในเครื่อง
 
-| หัวข้อ | PC Server (PostgreSQL / MariaDB) | Local SQLite (ประจำเครื่อง Prober) |
-| :--- | :--- | :--- |
-| **ตำแหน่ง** | เซิร์ฟเวอร์ส่วนกลางของโรงงาน (IP: 92.121.78.12) | อยู่ในไฟล์ `RFID_database_SQLite.db` ในเครื่อง |
-| **หน้าที่หลัก** | **Master Database (ฐานข้อมูลแม่)** | **Edge Cache & Offline Fallback (ฐานข้อมูลสำรอง)** |
-| **ความสำคัญ** | เป็นศูนย์กลางที่เก็บข้อมูล FPC ทุกใบในโรงงาน เพื่อให้เครื่อง Prober ทุกเครื่อง (`AVT55`, `AVT56`, ...) เห็นข้อมูลตรงกัน | ช่วยให้เครื่อง Prober ทำงานได้ต่อเนื่องโดยไม่สะดุดแม้ในยาม Network ขัดข้อง |
-| **ทิศทางข้อมูล** | - จ่าย Master Data (FPC/Header/PM) ลงไปให้เครื่อง Prober<br/>- รับ Scan Logs จากเครื่อง Prober มาบันทึกยอดรวม | - รับ Master Data มาอัปเดตแคชในเครื่อง<br/>- ส่ง Scan Logs ที่สแกนได้หน้างานขึ้นไปให้ Server |
+| หัวข้อ                       | PC Server (PostgreSQL / MariaDB)                                                                                                                                                                            | Local SQLite (ประจำเครื่อง Prober)                                                                                              |
+| :--------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
+| **ตำแหน่ง**           | เซิร์ฟเวอร์ส่วนกลางของโรงงาน (IP: 92.121.78.12)                                                                                                                                 | อยู่ในไฟล์`RFID_database_SQLite.db` ในเครื่อง                                                                          |
+| **หน้าที่หลัก**   | **Master Database (ฐานข้อมูลแม่)**                                                                                                                                                        | **Edge Cache & Offline Fallback (ฐานข้อมูลสำรอง)**                                                                      |
+| **ความสำคัญ**       | เป็นศูนย์กลางที่เก็บข้อมูล FPC ทุกใบในโรงงาน เพื่อให้เครื่อง Prober ทุกเครื่อง (`AVT55`, `AVT56`, ...) เห็นข้อมูลตรงกัน | ช่วยให้เครื่อง Prober ทำงานได้ต่อเนื่องโดยไม่สะดุดแม้ในยาม Network ขัดข้อง         |
+| **ทิศทางข้อมูล** | - จ่าย Master Data (FPC/Header/PM) ลงไปให้เครื่อง Prober- รับ Scan Logs จากเครื่อง Prober มาบันทึกยอดรวม                                                       | - รับ Master Data มาอัปเดตแคชในเครื่อง- ส่ง Scan Logs ที่สแกนได้หน้างานขึ้นไปให้ Server |
 
 ---
 
@@ -193,6 +197,8 @@ erDiagram
     FPC ||--o{ SCAN_LOG : "บันทึกประวัติ"
     HEADER ||--o{ SCAN_LOG : "บันทึกประวัติ"
 ```
+
+
 
 ---
 

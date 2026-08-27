@@ -83,7 +83,7 @@ class Config:
     # ——— Serial ports ———
     # Windows defaults; change to /dev/ttyUSB* on Linux if needed
     RFID_PORT = "COM4"
-    RFID_PORT_FPC = "COM5"
+    RFID_PORT_FPC = "COM6"
     RFID_PORT_CASSETTE = "COM8"
     RFID_BAUDRATE = 115200
 

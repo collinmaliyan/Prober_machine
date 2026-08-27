@@ -47,7 +47,7 @@ const MAIN_API = 'http://92.121.78.12:8000/';
 
 // On the header RPi set this true; on the main RPi set false
 //const USE_MAIN_FOR_LOGS = true;//ติดต่อไปยังเครื่องเซิร์ฟเวอร์หลัก (Main Server)
-const USE_MAIN_FOR_LOGS = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';//ใช้เพื่อทดสอบ
+const USE_MAIN_FOR_LOGS = false; // Always use same-origin relative endpoints so it works on localhost, 127.0.0.1, and network IPs
 
 let agvBgInFlight = false;
 function kickAgvBackground() {
