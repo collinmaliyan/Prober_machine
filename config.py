@@ -42,12 +42,12 @@ class Config:
     MOCKUP_MODE = False
 
     DB_CONFIG = {
-        'host': 'localhost',
-        'user': 'rfid_user',
-        'password': 'mypassword123',
-        'database': 'rfid_proj',
-        'port': 3306
-            }
+        'host': '92.121.77.57',
+        'port': 3306,
+        'user': '13991628',
+        'password': '7618HOkrJ',
+        'database': 'prober_machine'
+    }
 
     # ——— App / device identity ———
     AGV_NO = "-"
@@ -87,13 +87,13 @@ class Config:
     RFID_PORT_CASSETTE = "COM8"
     RFID_BAUDRATE = 115200
 
-    # ——— Sensor gate (for FPC window) ———
-    SENSOR_MODE = "GPIO"       # 'GPIO' or 'MIR'
-    SENSOR_ACTIVE_HIGH = True  # 1 = ACTIVE if True, else 0 = ACTIVE
-    SENSOR_PIN = 6             # BCM pin when using GPIO
-    FPC_WINDOW_S = 8.0
+    # ——— Stage Machine Timers / Windows ———
+    FPC_WINDOW_S = 10.0              # 10s reading window when sensor goes ACTIVE
+    CASSETTE_IN_PROCESS_TIMEOUT_S = 120
+    CASSETTE_CLEAR_TIMEOUT_S = 60
 
     # ——— Laptop simulator (dev/test) ———
-    SIMULATE_SENSOR_WITH_KEYBOARD = True
+    SIMULATE_SENSOR_WITH_KEYBOARD = False
     SENSOR_TOGGLE_KEY = "t"
+
 

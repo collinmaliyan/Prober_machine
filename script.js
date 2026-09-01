@@ -307,60 +307,56 @@ function updateHomeFromLocal() {
         const isReaderConnected = !!data.reader_connected;
         const rfidData = data.data || {};
         const tagPresent = !!(rfidData.fpc_id || rfidData.header_id || rfidData.header_name);
+        const bothHave = !!(rfidData.header_id && rfidData.fpc_id);
 
-        // Pair/mismatch logic (unchanged)
-        const pairKey = `${rfidData.header_id || ''}|${rfidData.fpc_id || ''}`;
-        if (pairKey !== window.__lastPairKey) {
-          window.__lastPairKey = pairKey;
-          window.__pmWarnKey = null;
+        const currentPairKey = `${rfidData.header_id || ''}|${rfidData.fpc_id || ''}`;
+        if (currentPairKey !== window.__lastPairKey) {
+          window.__lastPairKey = currentPairKey;
+          window.__pairWarnKey = null;
+          window.__pairModalDismissed = false;
         }
+
         if (tagPresent) {
           updateDisplayFields(rfidData);
 
-          const bothHave = !!(rfidData.header_id && rfidData.fpc_id);
-          const mismatch =
-            bothHave && (
-              rfidData.mismatch_detected === true ||
-              rfidData.pair_status === 'mismatch' ||
-              rfidData.pair_status === 'allowed_but_inactive' ||
-              rfidData.pair_ok === false ||
-              rfidData.match_ok === false ||
-              rfidData.allowed === false ||
-              rfidData.active === false
-            );
+          const isMismatch = (rfidData.mismatch_detected === true) || (bothHave && rfidData.match_ok === false);
 
-          if (!mismatch) {
-            window.__pmWarnKey = null;
-          }
-
-          if (mismatch) {
+          if (isMismatch) {
             const hdr = rfidData.mismatch_header || rfidData.header_id || '-';
             const fpc = rfidData.mismatch_fpc || rfidData.fpc_id || '-';
-            const msg = (rfidData.mismatch_type === 'not_allowed' || rfidData.allowed === false)
-              ? `FPC: ${fpc}  |  Header: ${hdr}  |  NOT matching together`
-              : `Header: ${hdr} is currently active on a different FPC`;
+            const mType = (rfidData.mismatch_type === 'not_found') ? 'not_found' : 'mismatch';
+            const isNotFound = (mType === 'not_found');
+            const alertType = isNotFound ? 'not_found' : 'mismatch';
 
-            const key = `MISMATCH|${hdr}|${fpc}`;
-            if (window.__pmWarnKey !== key) {
-              window.__pmWarnKey = key;
+            const msg = rfidData.mismatch_message || (
+              isNotFound
+                ? `Tag Header: ${hdr} or FPC: ${fpc} not found in database`
+                : `Header: ${hdr}  |  FPC: ${fpc}  |  NOT matching together`
+            );
+
+            const warnKey = `${alertType.toUpperCase()}|${hdr}|${fpc}`;
+
+            if (window.__pairWarnKey !== warnKey) {
+              window.__pairWarnKey = warnKey;
+              window.__pairModalDismissed = false;
               window.__pmDetailText = msg;
-              try { showPmWarning(msg, { type: 'mismatch' }); } catch (_) { }
-              const pm = document.getElementById('pm-warning');
-              if (pm) pm.style.display = 'flex';
+              showPmWarning(msg, { type: alertType });
             }
 
             const box = document.getElementById('info-box');
             if (box) {
               box.classList.add('warning-active');
               box.classList.remove('tag-active');
-              _updateInfoBoxBadge(box, 'danger', 'MISMATCH');
+              _updateInfoBoxBadge(box, 'danger', isNotFound ? 'NOT FOUND' : 'MISMATCH');
             }
           } else {
+            // No mismatch
+            window.__pairWarnKey = null;
             const box = document.getElementById('info-box');
             const td = Number(rfidData?.touchdown ?? 0);
             if (box && (!Number.isFinite(td) || td < TD_LIMIT) && !window.__pmModalOpen) {
               box.classList.remove('warning-active');
-              if (tagPresent && (rfidData.fpc_id || rfidData.header_id)) {
+              if (bothHave && (rfidData.match_ok === true || rfidData.pair_ok === true)) {
                 if (td >= TD_PREWARN_MIN) {
                   _updateInfoBoxBadge(box, 'warning', 'TD NEARING LIMIT');
                 } else {
@@ -372,6 +368,8 @@ function updateHomeFromLocal() {
             }
           }
         } else {
+          window.__pairWarnKey = null;
+          window.__pairModalDismissed = false;
           clearAllDisplayFields();
         }
 
@@ -467,11 +465,17 @@ function updateDisplayFields(rfidData) {
   setMany(['fpc-display'], rfidData.fpc_id || '');
   setMany(['header-display'], rfidData.header_id || '');
   setMany(['touchdown-value'], rfidData.touchdown ?? '');
-  updatePmPrewarning(rfidData);
   setMany(['PM-display'], rfidData.pm_date || '');
   setMany(['timer-display'], rfidData.timestamp || '');
   setMany(['comment-display'], rfidData.comment || '');
-  maybeWarnOnTouchdown(rfidData);
+
+  // Only run Touchdown checks when pair is validated and matched
+  if (rfidData.match_ok === true || rfidData.pair_ok === true) {
+    updatePmPrewarning(rfidData);
+    maybeWarnOnTouchdown(rfidData);
+  } else {
+    clearPmPrewarningState();
+  }
 }
 
 
@@ -1027,13 +1031,26 @@ function displayLogs(data) {
     return;
   }
   tableBody.innerHTML = data.map(log => {
-    const isMismatch = Boolean(log.isMismatch);
-    const statusBadge = isMismatch
-      ? `<span class="badge-result badge-result-mismatch">❌ Mismatch (ผิดคู่)</span>`
-      : `<span class="badge-result badge-result-match">✓ Match (ถูกต้อง)</span>`;
+    const src = String(log.source || '').toUpperCase();
+    const resType = String(log.resultType || '').toLowerCase();
+    const isNotFound = (src === 'NOT_FOUND' || resType === 'not_found');
+    const isMismatch = !isNotFound && (Boolean(log.isMismatch) || src === 'MISMATCH' || resType === 'mismatch');
+
+    let statusBadge;
+    let rowTitle;
+    if (isNotFound) {
+      statusBadge = `<span class="badge-result badge-result-notfound">🔍 Not Found (ไม่พบข้อมูล)</span>`;
+      rowTitle = 'Warning: Tag not registered in database';
+    } else if (isMismatch) {
+      statusBadge = `<span class="badge-result badge-result-mismatch">❌ Mismatch (ผิดคู่)</span>`;
+      rowTitle = 'Warning: FPC and Header Mismatch';
+    } else {
+      statusBadge = `<span class="badge-result badge-result-match">✓ Match (ถูกต้อง)</span>`;
+      rowTitle = 'Valid Tag Pair';
+    }
 
     return `
-        <tr title="${isMismatch ? 'Warning: FPC and Header Mismatch' : 'Valid Tag Pair'}">
+        <tr title="${rowTitle}">
             <td>${log.lotId || ''}</td>
             <td>${log.batchId || ''}</td>
             <td>${log.fpcId || ''}</td>
@@ -2217,10 +2234,21 @@ function showPmWarning(detailText, options = {}) {
   const textEl = document.getElementById('pm-warning-text');
   const detailEl = document.getElementById('pm-warning-detail');
 
-  // Determine alert type: 'mismatch' vs 'touchdown'
-  const isMismatch = options.type === 'mismatch' || (detailText && (detailText.includes('NOT matching') || detailText.includes('MISMATCH') || detailText.includes('different FPC')));
+  // Determine alert type: 'not_found' vs 'mismatch' vs 'touchdown'
+  const isNotFound = (options.type === 'not_found');
+  const isMismatch = (options.type === 'mismatch') || (!isNotFound && options.type !== 'touchdown' && detailText && (detailText.includes('MISMATCH') || detailText.includes('ไม่ตรงคู่')));
 
-  if (isMismatch) {
+  if (isNotFound) {
+    if (headerEl) headerEl.textContent = 'Data Not Found Alert';
+    if (iconEl) iconEl.textContent = '🔍';
+    if (titleEl) titleEl.textContent = 'Tag Not Registered in Database';
+    if (textEl) {
+      textEl.innerHTML = `
+        <p>The scanned FPC or Header is <strong>NOT registered in the database</strong>.</p>
+        <p>Please perform Data Mapping from Smart Store or register the card before starting a new lot.</p>
+      `;
+    }
+  } else if (isMismatch) {
     if (headerEl) headerEl.textContent = 'Mismatch Alert';
     if (iconEl) iconEl.textContent = '❌';
     if (titleEl) titleEl.textContent = 'FPC & Header Mismatch';
@@ -2249,7 +2277,8 @@ function showPmWarning(detailText, options = {}) {
   if (box) {
     box.classList.add('warning-active');
     box.classList.remove('tag-active');        // never green while warning
-    _updateInfoBoxBadge(box, 'danger', isMismatch ? 'MISMATCH' : 'TOUCHDOWN EXCEEDED');
+    const badgeText = isNotFound ? 'NOT FOUND' : (isMismatch ? 'MISMATCH' : 'TOUCHDOWN EXCEEDED');
+    _updateInfoBoxBadge(box, 'danger', badgeText);
   }
 
   if (navigator.vibrate) navigator.vibrate([60, 40, 60]);

@@ -1619,6 +1619,12 @@ body {
   border: 1px solid #ffcdd2;
 }
 
+.badge-result-notfound {
+  background: #fff8e1;
+  color: #b78103;
+  border: 1px solid #ffe082;
+}
+
 .search-select {
   cursor: pointer;
   background-color: #ffffff;

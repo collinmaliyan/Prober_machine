@@ -160,7 +160,7 @@
                                 </div>
                             </div>
 
-                            <!-- RFID-2: FPC Reader (หัวอ่านและเซนเซอร์ของการ์ด FPC) -->
+                            <!-- RFID-2: FPC Reader (หัวอ่านการ์ด FPC) -->
                             <div class="rfid-card" id="rfid-card-fpc">
                                 <div class="card-title">RFID-2 (FPC)</div>
                                 <div class="card-status-row">
@@ -174,12 +174,11 @@
                                                 id="rfid-fpc-reader-text">Disconnected</span>
                                         </span>
                                     </div>
-                                    <!-- คอลัมน์แสดงสถานะ Sensor (คลิกที่ป้ายนี้เพื่อจำลอง เสียบ/ถอด แผ่น FPC) -->
                                     <div class="status-column">
                                         <span class="status-label">Sensor</span>
-                                        <span class="sensor-value off" id="rfid-fpc-sensor-status"
-                                            onclick="toggleSensorSimulator()"
-                                            title="คลิกเพื่อจำลอง เสียบ/ถอด การ์ด FPC (สลับสถานะ Sensor ON/OFF)">OFF</span>
+                                        <span class="status-value">
+                                            <span class="sensor-value off" id="rfid-fpc-sensor-status" onclick="toggleSensorSimulator()" title="Click to toggle Sensor ON/OFF">OFF</span>
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -538,8 +537,9 @@
                                 <label for="search-result">ผลลัพธ์ (Result)</label>
                                 <select id="search-result" class="search-input search-select" onchange="searchLogs()">
                                     <option value="all">ทั้งหมด (All)</option>
-                                    <option value="match">จับคู่ถูกต้อง (Match)</option>
-                                    <option value="mismatch">จับคู่ผิด (Mismatch)</option>
+                                    <option value="match">✓ จับคู่ถูกต้อง (Match)</option>
+                                    <option value="mismatch">❌ จับคู่ผิด (Mismatch)</option>
+                                    <option value="not_found">🔍 ไม่พบข้อมูล (Not Found)</option>
                                 </select>
                             </div>
 
@@ -718,64 +718,86 @@
                             <div class="setting-card">
                                 <div class="setting-card-header">
                                     <div class="setting-card-icon icon-ip">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
                                             <circle cx="12" cy="12" r="10"></circle>
                                             <line x1="2" y1="12" x2="22" y2="12"></line>
-                                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                                            <path
+                                                d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z">
+                                            </path>
                                         </svg>
                                     </div>
                                     <h3 class="setting-card-title">Reset IP Address</h3>
                                 </div>
-                                <p class="setting-card-desc">Reset the prober network configuration & socket endpoints. Network will temporarily reconnect.</p>
-                                <button id="btn-reset-ip" class="btn-setting-action btn-ip admin-only" onclick="resetIPAddress()">Reset IP Address</button>
+                                <p class="setting-card-desc">Reset the prober network configuration & socket endpoints.
+                                    Network will temporarily reconnect.</p>
+                                <button id="btn-reset-ip" class="btn-setting-action btn-ip admin-only"
+                                    onclick="resetIPAddress()">Reset IP Address</button>
                             </div>
 
                             <!-- Card 2: Reset Logs -->
                             <div class="setting-card">
                                 <div class="setting-card-header">
                                     <div class="setting-card-icon icon-logs">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
                                             <polyline points="3 6 5 6 21 6"></polyline>
-                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                            <path
+                                                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
+                                            </path>
                                             <line x1="10" y1="11" x2="10" y2="17"></line>
                                             <line x1="14" y1="11" x2="14" y2="17"></line>
                                         </svg>
                                     </div>
                                     <h3 class="setting-card-title">Reset Logs</h3>
                                 </div>
-                                <p class="setting-card-desc">Permanently clear system audit trail, event histories, and transaction logs from storage.</p>
-                                <button id="btn-reset-logs" class="btn-setting-action btn-danger admin-only" onclick="resetLogs()">Reset Logs</button>
+                                <p class="setting-card-desc">Permanently clear system audit trail, event histories, and
+                                    transaction logs from storage.</p>
+                                <button id="btn-reset-logs" class="btn-setting-action btn-danger admin-only"
+                                    onclick="resetLogs()">Reset Logs</button>
                             </div>
 
                             <!-- Card 3: System Reset -->
                             <div class="setting-card">
                                 <div class="setting-card-header">
                                     <div class="setting-card-icon icon-system">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
                                             <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
                                             <line x1="12" y1="2" x2="12" y2="12"></line>
                                         </svg>
                                     </div>
                                     <h3 class="setting-card-title">System Reset</h3>
                                 </div>
-                                <p class="setting-card-desc">Perform full system reboot & state reset. Reverts volatile buffers and returns settings to default.</p>
-                                <button id="btn-system-reset" class="btn-setting-action btn-danger-dark admin-only" onclick="systemReset()">System Reset</button>
+                                <p class="setting-card-desc">Perform full system reboot & state reset. Reverts volatile
+                                    buffers and returns settings to default.</p>
+                                <button id="btn-system-reset" class="btn-setting-action btn-danger-dark admin-only"
+                                    onclick="systemReset()">System Reset</button>
                             </div>
 
                             <!-- Card 4: Reset RFID Settings -->
                             <div class="setting-card">
                                 <div class="setting-card-header">
                                     <div class="setting-card-icon icon-rfid">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
                                             <path d="M23 4v6h-6"></path>
                                             <path d="M1 20v-6h6"></path>
-                                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                            <path
+                                                d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15">
+                                            </path>
                                         </svg>
                                     </div>
                                     <h3 class="setting-card-title">Reset RFID Settings</h3>
                                 </div>
-                                <p class="setting-card-desc">Recalibrate RFID readers (FPC & Cassette), clear cached tag readings, and re-scan serial COM ports.</p>
-                                <button id="btn-reset-rfid" class="btn-setting-action btn-warning" onclick="resetRFID()">Reset RFID Settings</button>
+                                <p class="setting-card-desc">Recalibrate RFID readers (FPC & Cassette), clear cached tag
+                                    readings, and re-scan serial COM ports.</p>
+                                <button id="btn-reset-rfid" class="btn-setting-action btn-warning"
+                                    onclick="resetRFID()">Reset RFID Settings</button>
                             </div>
                         </div>
 
@@ -933,7 +955,7 @@
     </div>
 
 
-    <script src="script.js?v=20260820_v22"></script>
+    <script src="script.js?v=20260901_v4"></script>
 
     <div id="mismatch-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mm-title"
         style="display:none">

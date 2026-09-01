@@ -20,3 +20,4 @@ backup_before_edit/
 logs/*.csv
 *.log
 *.sqlite
+scratch/
