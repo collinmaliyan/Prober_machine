@@ -1155,7 +1155,10 @@ def set_q(ser, q_val):
 
 def try_read_epc(ser, attempts=3):
     for _ in range(attempts):
-        ser.write(CMD_SINGLE)
+        try:
+            ser.write(CMD_SINGLE)
+        except Exception:
+            return None
         t_end = time.time() + 0.15
         while time.time() < t_end:
             fr = yrm_read_frame(ser, timeout_s=0.05)
@@ -1167,6 +1170,7 @@ def try_read_epc(ser, attempts=3):
                     return payload[3:3+epc_len].hex().upper()
             elif ftype == 0x01 and cmd == 0xFF and payload == b"\x15":
                 break
+    return None
 
 def yrm_single_inventory_once(ser, collect_window_s=0.15):
     """
@@ -1424,7 +1428,7 @@ class RFIDReader:
         """Connect only to the configured COM port, no auto-switch."""
         try:
             if self.ser is None or not self.ser.is_open:
-                self.ser = serial.Serial(self.port, self.baudrate, timeout=1)
+                self.ser = serial.Serial(self.port, self.baudrate, timeout=1, write_timeout=0.5)
                 print(f"[CONNECTED] to {self.port}")
             return True
         except Exception as e:
@@ -1774,7 +1778,7 @@ class FPCReader:
             if self.ser is None or not self.ser.is_open:
                 if hasattr(Config, 'RFID_PORT_FPC') and Config.RFID_PORT_FPC:
                     self.port = Config.RFID_PORT_FPC
-                self.ser = serial.Serial(self.port, self.baudrate, timeout=1)
+                self.ser = serial.Serial(self.port, self.baudrate, timeout=1, write_timeout=0.5)
                 print(f"[FPC] connected {self.port}")
                 # Wake up and initialize YRM100 RF transceiver
                 try:
