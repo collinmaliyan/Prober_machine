@@ -80,11 +80,17 @@ class Config:
     # present in Second_header_wo_error.py only; safe to keep here
     SUPPRESS_UI_WARNINGS = True
 
-    # ——— Serial ports ———
-    # Windows defaults; change to /dev/ttyUSB* on Linux if needed
-    RFID_PORT = "COM4"
-    RFID_PORT_FPC = "COM6"
-    RFID_PORT_CASSETTE = "COM8"
+    # ——— Serial ports (Auto-detects Windows COM vs Linux /dev/ttyUSB) ———
+    import platform
+    if platform.system().lower() == "linux":
+        RFID_PORT = "/dev/ttyUSB0"          # Header Reader (RFID-3)
+        RFID_PORT_FPC = "/dev/ttyUSB1"      # FPC Reader (RFID-2)
+        RFID_PORT_CASSETTE = "/dev/ttyUSB2" # Cassette Reader (RFID-1)
+    else:
+        RFID_PORT = "COM4"
+        RFID_PORT_FPC = "COM6"
+        RFID_PORT_CASSETTE = "COM8"
+
     RFID_BAUDRATE = 115200
 
     # ——— Stage Machine Timers / Windows ———
