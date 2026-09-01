@@ -19,7 +19,13 @@ echo "[INFO] Project Directory: $APP_DIR"
 echo "[INFO] Python Binary:     $PYTHON_BIN"
 echo "[INFO] Target Service:    $SERVICE_FILE"
 
-# 1. Ensure serial port permissions
+# 1. Install Python dependencies if requirements.txt exists
+if [ -f "$APP_DIR/requirements.txt" ] && command -v pip3 &> /dev/null; then
+    echo "[INFO] Installing Python dependencies from requirements.txt..."
+    pip3 install -r "$APP_DIR/requirements.txt" --quiet || true
+fi
+
+# 2. Ensure serial port permissions
 echo "[INFO] Setting up serial port access permissions..."
 usermod -a -G dialout root 2>/dev/null || true
 
