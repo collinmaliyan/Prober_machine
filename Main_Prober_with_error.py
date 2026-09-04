@@ -1780,12 +1780,15 @@ class FPCReader:
                     self.port = Config.RFID_PORT_FPC
                 self.ser = serial.Serial(self.port, self.baudrate, timeout=1, write_timeout=0.5)
                 print(f"[FPC] connected {self.port}")
-                # Wake up and initialize YRM100 RF transceiver
+                # Set maximum transmit power (TX Power) for longest read range
                 try:
-                    get_tx_power_dbm(self.ser)
+                    target_pwr = float(getattr(Config, 'RFID_TX_POWER_FPC', 26.0))
+                    set_tx_power_dbm(self.ser, target_pwr)
+                    cur_pwr = get_tx_power_dbm(self.ser)
+                    print(f"[FPC] TX Power set to {cur_pwr} dBm (target: {target_pwr} dBm)")
                     get_query_params(self.ser)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[FPC] TX power init warning: {e}")
             return True
         except Exception as e:
             print(f"[FPC] open error: {e}")
@@ -1834,16 +1837,17 @@ class FPCReader:
         self.running = False
 
     def _read_once_ascii(self):
-        epc_hex = try_read_epc(self.ser, attempts=2) if self.connect() else None
+        epc_hex = try_read_epc(self.ser, attempts=3) if self.connect() else None
         if not epc_hex:
             return None
         try:
             raw = bytes.fromhex(epc_hex)
-        except ValueError:
-            return None
-        raw = raw.split(b"\x00", 1)[0]
-        s = raw.decode("ascii", errors="ignore")
-        return "".join(c for c in s if 32 <= ord(c) <= 126).strip() or None
+            raw = raw.split(b"\x00", 1)[0]
+            s = raw.decode("ascii", errors="ignore")
+            clean = "".join(c for c in s if 32 <= ord(c) <= 126).strip()
+            return clean if clean else epc_hex
+        except Exception:
+            return epc_hex
 
     def _clear(self, reason=""):
         had_tag = bool(self.fpc_current)
@@ -1869,7 +1873,6 @@ class FPCReader:
 
     def _loop(self):
         print("[FPC] Sensor-Gated loop starting...")
-        gap = getattr(Config, "YRM100_GAP_S", 0.5)
         while self.running:
             try:
                 active = self.sensor.is_active()
@@ -1891,9 +1894,9 @@ class FPCReader:
                     else:
                         # still active; within window?
                         if now <= self.window_until:
-                            epc_ascii = self._read_once_ascii()
-                            if epc_ascii:
-                                if epc_ascii != self.fpc_current:
+                            if not self.fpc_current:
+                                epc_ascii = self._read_once_ascii()
+                                if epc_ascii:
                                     self.fpc_current = epc_ascii
                                     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                     self.current_data.update({"fpc_id": epc_ascii, "timestamp": ts})
@@ -1904,8 +1907,13 @@ class FPCReader:
                         else:
                             # window expired:
                             if not self.fpc_current:
-                                self._clear("window timeout (no read)")
-                                self.block_until_low = True
+                                # In PC / simulation test mode, keep window open while sensor is active
+                                is_simulator = getattr(self.sensor, '_simulate', False) or (self.sensor.mode == 'GPIO' and self.sensor.GPIO is None)
+                                if is_simulator:
+                                    self.window_until = now + float(getattr(Config, 'FPC_WINDOW_S', 10.0))
+                                else:
+                                    self._clear("window timeout (no read)")
+                                    self.block_until_low = True
                             else:
                                 if not self.window_committed and not self.window_just_closed:
                                     self.window_just_closed = True
@@ -1919,7 +1927,11 @@ class FPCReader:
                         if self.fpc_current:
                             self._clear("sensor LOW (idle)")
 
-                time.sleep(gap)
+                # Gentle sleep to protect hardware and avoid flickering RF burst
+                if active and not self.fpc_current:
+                    time.sleep(0.4)  # Scan gently every 400ms
+                else:
+                    time.sleep(0.5)  # Idle or already holding tag -> rest 500ms
             except Exception as e:
                 print("[FPC] loop error:", e)
                 self.close()
@@ -2189,6 +2201,11 @@ class RFIDApp:
                 else:
                     self.fpc_reader.sensor._sim_state = not curr
                 new_state = self.fpc_reader.sensor._sim_state
+                if new_state:
+                    self.fpc_reader.block_until_low = False
+                    self.fpc_reader.window_open = False  # trigger fresh rising edge
+                else:
+                    self.fpc_reader._clear("Sensor switched to OFF via API/UI")
                 print(f"[SENSOR API] Sensor simulation state -> {'ACTIVE (ON)' if new_state else 'INACTIVE (OFF)'}")
                 return jsonify({"status": "success", "sensor_active": new_state})
             return jsonify({"status": "error", "message": "FPC reader or sensor not available"}), 400
@@ -2588,19 +2605,28 @@ class RFIDApp:
                     'rfid_status': rfid_status
                 })
 
-            # --- connectivity: use header_reader as the “reader connected” indicator ---
-            is_connected = False
+            # --- connectivity: check if any active reader is connected ---
+            hdr_connected = False
             try:
                 if getattr(self, 'header_reader', None):
-                    is_connected = bool(self.header_reader.is_hw_connected())
-                    if is_connected and not self.header_reader.running:
+                    hdr_connected = bool(self.header_reader.is_hw_connected())
+                    if hdr_connected and not self.header_reader.running:
                         print("[AUTO] Header reader detected, starting thread...")
                         self.header_reader.start_reading()
-                    elif not is_connected and self.header_reader.running:
+                    elif not hdr_connected and self.header_reader.running:
                         self.header_reader.running = False
             except Exception as e:
                 print(f"[WARN] header is_hw_connected failed: {e}")
-                is_connected = False
+                hdr_connected = False
+
+            fpc_connected = False
+            try:
+                if getattr(self, 'fpc_reader', None):
+                    fpc_connected = bool(self.fpc_reader.is_hw_connected())
+            except Exception:
+                fpc_connected = False
+
+            is_connected = hdr_connected or fpc_connected
 
             # --- base snapshot ---
             current = {

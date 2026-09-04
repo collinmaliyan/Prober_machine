@@ -434,8 +434,9 @@ body {
 
 #home .info-box.disconnected,
 #home .right-box.disconnected {
-  background: #ff5757 !important;
-  box-shadow: 0 0 0 2px rgba(220, 53, 69, .12) inset !important;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
 }
 
 #home .info-box.tag-active,

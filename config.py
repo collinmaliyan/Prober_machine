@@ -88,10 +88,12 @@ class Config:
         RFID_PORT_CASSETTE = "/dev/ttyUSB2" # Cassette Reader (RFID-1)
     else:
         RFID_PORT = "COM4"
-        RFID_PORT_FPC = "COM6"
+        RFID_PORT_FPC = "COM5"
         RFID_PORT_CASSETTE = "COM8"
 
     RFID_BAUDRATE = 115200
+    RFID_TX_POWER = 26.0       # Header Reader TX Power (dBm, 13.0 - 26.0)
+    RFID_TX_POWER_FPC = 26.0   # FPC Reader TX Power (dBm, 13.0 - 26.0)
 
     # ——— Stage Machine Timers / Windows ———
     FPC_WINDOW_S = 10.0              # 10s reading window when sensor goes ACTIVE

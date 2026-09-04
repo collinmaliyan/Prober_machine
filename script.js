@@ -388,7 +388,7 @@ function updateHomeFromLocal() {
         }
 
         const hasAnyTag = tagPresent || isCassettePresent;
-        const isAnyConnected = isReaderConnected || !!data.cassette_connected || isCassettePresent || (data.rfid_status?.cassette?.connected);
+        const isAnyConnected = isReaderConnected || !!data.cassette_connected || isCassettePresent || !!(data.rfid_status?.fpc?.connected) || !!(data.rfid_status?.header?.connected) || !!(data.rfid_status?.cassette?.connected);
 
         // connection + green state (respects warning-active)
         updateConnectionStatus(isAnyConnected, hasAnyTag);
