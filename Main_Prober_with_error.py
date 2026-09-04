@@ -1140,7 +1140,7 @@ read_frame = yrm_read_frame
 
 def set_q(ser, q_val):
     if not (0 <= q_val <= 15):
-        raise ValueError("Q must be 0–15")
+        raise ValueError("Q must be 0-15")
     cur = get_query_params(ser)
     if not cur: return False
     msb, lsb = cur
@@ -1155,7 +1155,10 @@ def set_q(ser, q_val):
 
 def try_read_epc(ser, attempts=3):
     for _ in range(attempts):
-        ser.write(CMD_SINGLE)
+        try:
+            ser.write(CMD_SINGLE)
+        except Exception:
+            return None
         t_end = time.time() + 0.15
         while time.time() < t_end:
             fr = yrm_read_frame(ser, timeout_s=0.05)
@@ -1167,6 +1170,7 @@ def try_read_epc(ser, attempts=3):
                     return payload[3:3+epc_len].hex().upper()
             elif ftype == 0x01 and cmd == 0xFF and payload == b"\x15":
                 break
+    return None
 
 def yrm_single_inventory_once(ser, collect_window_s=0.15):
     """
@@ -1300,7 +1304,7 @@ class SensorGate:
         if self._simulate:
             try:
                 threading.Thread(target=self._kb_loop, daemon=True).start()
-                print(f"[SENSOR] Keyboard simulation ON — press '{self._sim_key.upper()}' to toggle ACTIVE/INACTIVE")
+                print(f"[SENSOR] Keyboard simulation ON - press '{self._sim_key.upper()}' to toggle ACTIVE/INACTIVE")
             except Exception as e:
                 print("[SENSOR] keyboard listener failed:", e)
 
@@ -1424,7 +1428,7 @@ class RFIDReader:
         """Connect only to the configured COM port, no auto-switch."""
         try:
             if self.ser is None or not self.ser.is_open:
-                self.ser = serial.Serial(self.port, self.baudrate, timeout=1)
+                self.ser = serial.Serial(self.port, self.baudrate, timeout=1, write_timeout=0.5)
                 print(f"[CONNECTED] to {self.port}")
             return True
         except Exception as e:
@@ -1517,7 +1521,7 @@ class RFIDReader:
         return True
 
     def _read_loop(self):
-        print("[LISTENING] YRM100…")
+        print("[LISTENING] YRM100...")
         while self.running:
             try:
                 now = time.time()
@@ -1636,7 +1640,7 @@ class RFIDReader:
                 return
 
             # ======================================
-            # (Reserved) FPC READER (R#2) — optional
+            # (Reserved) FPC READER (R#2) - optional
             # ======================================
             elif mode == 'FPC':
                 fpc_id = (tag_ascii or '').strip()
@@ -1774,7 +1778,7 @@ class FPCReader:
             if self.ser is None or not self.ser.is_open:
                 if hasattr(Config, 'RFID_PORT_FPC') and Config.RFID_PORT_FPC:
                     self.port = Config.RFID_PORT_FPC
-                self.ser = serial.Serial(self.port, self.baudrate, timeout=1)
+                self.ser = serial.Serial(self.port, self.baudrate, timeout=1, write_timeout=0.5)
                 print(f"[FPC] connected {self.port}")
                 # Wake up and initialize YRM100 RF transceiver
                 try:
@@ -1864,7 +1868,7 @@ class FPCReader:
         self.window_until = 0.0
 
     def _loop(self):
-        print("[FPC] Sensor-Gated loop starting…")
+        print("[FPC] Sensor-Gated loop starting...")
         gap = getattr(Config, "YRM100_GAP_S", 0.5)
         while self.running:
             try:
@@ -1877,12 +1881,12 @@ class FPCReader:
                     self.window_until = now + float(getattr(Config, 'FPC_WINDOW_S', 10.0))
                     self.fpc_logged_latch = None
                     self.window_committed = False
-                    print(f"[FPC] sensor ACTIVE → open window {getattr(Config, 'FPC_WINDOW_S', 10.0)}s")
+                    print(f"[FPC] sensor ACTIVE -> open window {getattr(Config, 'FPC_WINDOW_S', 10.0)}s")
 
                 # if window open, try to read
                 if self.window_open:
                     if not active:
-                        # sensor dropped → clear immediately and signal commit
+                        # sensor dropped -> clear immediately and signal commit
                         self._clear("sensor LOW during window")
                     else:
                         # still active; within window?
@@ -2701,7 +2705,7 @@ class RFIDApp:
                 if getattr(self, 'header_reader', None):
                     is_connected = bool(self.header_reader.is_hw_connected())
                     if is_connected and not self.header_reader.running:
-                        print("[AUTO] Header reader detected, starting thread…")
+                        print("[AUTO] Header reader detected, starting thread...")
                         self.header_reader.start_reading()
                     elif not is_connected and self.header_reader.running:
                         self.header_reader.running = False
@@ -3948,7 +3952,7 @@ class RFIDApp:
         self.header_reader = RFIDReader()  # uses Config.RFID_PORT
         iomap_value = 1  # if you need to gate with PLC 10, wire it here
         if iomap_value == 1:
-            print("[HDR] Starting header reader…")
+            print("[HDR] Starting header reader...")
             if self.header_reader.start_reading():
                 print("[HDR] header reader running.")
                 BackupManager.schedule_daily_backup()
@@ -3973,7 +3977,7 @@ class RFIDApp:
         ports = [p.device.upper() for p in list_ports.comports()]
         if cass_port and cass_port.upper() in ports:
             self.cassette_reader = RFIDReader(port=cass_port, reader_mode="CASSETTE")
-            print(f"[CASS] Starting cassette serial reader on {cass_port}…")
+            print(f"[CASS] Starting cassette serial reader on {cass_port}...")
             if self.cassette_reader.start_reading():
                 print("[CASS] cassette reader running.")
                 return True
