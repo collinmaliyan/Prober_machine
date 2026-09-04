@@ -2066,6 +2066,11 @@ class RFIDApp:
             t = threading.Thread(target=self._mockup_simulator_loop, daemon=True)
             t.start()
 
+        # --- [PMI SIMULATION & IMAGE SERVICE STATE] ---
+        self._pmi_sim_index = 0
+        self._pmi_failed_records = []
+        self._pmi_last_update = 0
+
         self._setup_routes()
 
     def admin_required(self, fn):
@@ -2110,6 +2115,112 @@ class RFIDApp:
         @self.app.route('/api/current_data')
         def get_current_data():
             return self._get_current_data()
+
+        # =====================================================================
+        # --- [PMI SIMULATION & IMAGE SERVICE (UIIU Integration)] ---
+        # =====================================================================
+        def _get_pmi_dirs():
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            candidates = [
+                os.path.join(base_dir, 'UIIU', 'simulation'),
+                os.path.join(base_dir, 'UIIU', 'datasets'),
+                os.path.join(base_dir, 'UIIU'),
+                os.path.join(base_dir, '..', 'UIIU', 'simulation'),
+                os.path.join(base_dir, '..', 'UIIU', 'datasets'),
+                os.path.join(base_dir, '..', 'UIIU'),
+                os.path.join(base_dir, '..', 'PUNPUNJA', 'PROJECT', 'UIIU', 'simulation'),
+                os.path.join(base_dir, '..', 'PUNPUNJA', 'PROJECT', 'UIIU', 'datasets'),
+                os.path.join(base_dir, '..', 'PUNPUNJA', 'PROJECT', 'UIIU'),
+                '/home/nxp1/Desktop/PUNPUNJA/PROJECT/UIIU/simulation',
+                '/home/nxp1/Desktop/PUNPUNJA/PROJECT/UIIU/datasets',
+                '/home/nxp1/Desktop/PUNPUNJA/PROJECT/UIIU',
+                '/home/root/UIIU/simulation',
+                '/home/root/UIIU/datasets',
+                '/home/root/UIIU',
+                os.path.join(base_dir, 'simulation'),
+            ]
+            valid = []
+            for c in candidates:
+                if os.path.exists(c) and os.path.isdir(c):
+                    valid.append(os.path.abspath(c))
+            return valid
+
+        def _get_pmi_images():
+            dirs = _get_pmi_dirs()
+            files = []
+            exts = ('.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG')
+            for d in dirs:
+                try:
+                    for root, _, filenames in os.walk(d):
+                        for f in filenames:
+                            if f.endswith(exts):
+                                files.append((root, f))
+                except Exception:
+                    pass
+            return files
+
+        @self.app.route('/api/latest-inspection')
+        @self.app.route('/api/v1/latest-inspection')
+        def pmi_latest_inspection():
+            images = _get_pmi_images()
+            now = time.time()
+            if images:
+                # Step to next image every 2.5 seconds
+                if now - self._pmi_last_update > 2.5:
+                    self._pmi_sim_index = (self._pmi_sim_index + 1) % len(images)
+                    self._pmi_last_update = now
+
+                img_dir, img_name = images[self._pmi_sim_index % len(images)]
+                upper_name = img_name.upper()
+                is_fail = ('FAIL' in upper_name or 'NG' in upper_name or 'DEFECT' in upper_name)
+                decision = 'FAIL' if is_fail else 'PASS'
+
+                record = {
+                    "status": "success",
+                    "image_name": img_name,
+                    "filename": img_name,
+                    "rawImageUrl": f"/api/pmi/image/{img_name}",
+                    "annotatedImageUrl": f"/api/pmi/image/{img_name}",
+                    "imageUrl": f"/api/pmi/image/{img_name}",
+                    "decision": decision,
+                    "ai_decision": decision,
+                    "is_pass": (not is_fail),
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+
+                if is_fail and not any(f.get('image_name') == img_name for f in self._pmi_failed_records):
+                    self._pmi_failed_records.append(record)
+                    if len(self._pmi_failed_records) > 20:
+                        self._pmi_failed_records.pop(0)
+
+                return jsonify(record)
+            else:
+                return jsonify({
+                    "status": "success",
+                    "image_name": "pmi_inspection.png",
+                    "rawImageUrl": "/pmi_inspection.png",
+                    "annotatedImageUrl": "/pmi_inspection.png",
+                    "decision": "PASS",
+                    "is_pass": True,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+
+        @self.app.route('/api/batch-summary')
+        @self.app.route('/api/v1/batch-summary')
+        def pmi_batch_summary():
+            return jsonify({
+                "status": "success",
+                "isBatchComplete": False,
+                "failedRecords": self._pmi_failed_records
+            })
+
+        @self.app.route('/api/pmi/image/<path:img_filename>')
+        def serve_pmi_image(img_filename):
+            images = _get_pmi_images()
+            for img_dir, name in images:
+                if name == img_filename:
+                    return send_from_directory(img_dir, name)
+            return send_from_directory('.', img_filename)
 
         @self.app.route('/api/simulate/cassette')
         def simulate_cassette():
@@ -3875,7 +3986,7 @@ class RFIDApp:
             return conn
 
 
-    def run(self, host='0.0.0.0', port=8001, debug=False):
+    def run(self, host='0.0.0.0', port=8002, debug=False):
         """Run the Flask application"""
         self.app.run(host=host, port=port, debug=debug)
 
@@ -3911,7 +4022,7 @@ def main():
 
 
     # Run the Flask application
-    app.run(host='0.0.0.0', port=8001, debug=False)
+    app.run(host='0.0.0.0', port=8002, debug=False)
 
 
 if __name__ == '__main__':
