@@ -4002,7 +4002,7 @@ class RFIDApp:
             return conn
 
 
-    def run(self, host='0.0.0.0', port=8001, debug=False):
+    def run(self, host='0.0.0.0', port=8002, debug=False):
         """Run the Flask application"""
         self.app.run(host=host, port=port, debug=debug)
 
@@ -4038,7 +4038,7 @@ def main():
 
 
     # Run the Flask application
-    app.run(host='0.0.0.0', port=8001, debug=False)
+    app.run(host='0.0.0.0', port=8002, debug=False)
 
 
 if __name__ == '__main__':
