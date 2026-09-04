@@ -388,7 +388,7 @@ function updateHomeFromLocal() {
         }
 
         const hasAnyTag = tagPresent || isCassettePresent;
-        const isAnyConnected = isReaderConnected || !!data.cassette_connected || isCassettePresent || !!(data.rfid_status?.fpc?.connected) || !!(data.rfid_status?.header?.connected) || !!(data.rfid_status?.cassette?.connected);
+        const isAnyConnected = isReaderConnected || !!data.cassette_connected || isCassettePresent || (data.rfid_status?.cassette?.connected);
 
         // connection + green state (respects warning-active)
         updateConnectionStatus(isAnyConnected, hasAnyTag);
@@ -2965,202 +2965,620 @@ document.addEventListener('visibilitychange', () => {
 
 
 document.addEventListener('app:stateChanged', () => {
-  refreshPoiDerived();
-  redrawMap && redrawMap();
+  if (typeof refreshPoiDerived === 'function') {
+    refreshPoiDerived();
+  }
+  if (typeof redrawMap === 'function') {
+    redrawMap();
+  }
 });
 
+
 // ============================================================================
-// MOCK UP PMI: Automatic status transition simulation loop (DISABLED FOR REAL TESTING)
+// PMI BATCH-WAFER FORMATTER HELPER
 // ============================================================================
-/*
-(function() {
-  let currentPmiState = 0; // 0 = WAITING, 1 = PASSED, 2 = FAILED
-  const testFileName = "20260505114649_TR7A9073W25C5_X37Y2_S10_P15_NM_29D5B0FBAA-PC611_300.bmp";
-
-  function simulatePmiTransition() {
-    const statusBar = document.getElementById('pmi-status-bar');
-    const filenameDisplay = document.getElementById('pmi-filename-display');
-    const framesContainer = document.getElementById('pmi-frames-container');
-    
-    // Viewport image elements
-    const rawImg = document.getElementById('pmi-raw-img');
-    const processedImg = document.getElementById('pmi-processed-img');
-    
-    // Under-construction placeholders
-    const rawConstruct = document.getElementById('pmi-raw-construct');
-    const processedConstruct = document.getElementById('pmi-processed-construct');
-
-    // Safe guard check: if elements are missing from the current DOM, skip execution
-    if (!statusBar || !filenameDisplay || !framesContainer) return;
-
-    // Reset status classes on status bar and frames container
-    statusBar.classList.remove('waiting', 'passed', 'failed');
-    framesContainer.classList.remove('passed', 'failed');
-
-    if (currentPmiState === 0) {
-      // 🟢 PHASE 0: WAITING (Standby) - Both monitors are completely empty (no images, no warning signs)
-      statusBar.classList.add('waiting');
-      statusBar.textContent = 'WAITING';
-      filenameDisplay.textContent = '—';
-      
-      if (rawImg) rawImg.style.display = 'none';
-      if (processedImg) processedImg.style.display = 'none';
-      if (rawConstruct) rawConstruct.style.display = 'none';
-      if (processedConstruct) processedConstruct.style.display = 'none';
-      
-      currentPmiState = 1; // Advance to PASSED next
-    } 
-    else if (currentPmiState === 1) {
-      // 🟢 PHASE 1: PASSED - Images load, right viewport highlighted green
-      statusBar.classList.add('passed');
-      statusBar.textContent = 'PASSED';
-      filenameDisplay.textContent = testFileName;
-      
-      framesContainer.classList.add('passed');
-      if (rawImg) rawImg.style.display = 'block';
-      if (processedImg) processedImg.style.display = 'block';
-      if (rawConstruct) rawConstruct.style.display = 'none';
-      if (processedConstruct) processedConstruct.style.display = 'none';
-      
-      currentPmiState = 2; // Advance to FAILED next
-    } 
-    else {
-      // 🟢 PHASE 2: FAILED - Images load, right viewport highlighted red
-      statusBar.classList.add('failed');
-      statusBar.textContent = 'FAILED';
-      filenameDisplay.textContent = testFileName;
-      
-      framesContainer.classList.add('failed');
-      if (rawImg) rawImg.style.display = 'block';
-      if (processedImg) processedImg.style.display = 'block';
-      if (rawConstruct) rawConstruct.style.display = 'none';
-      if (processedConstruct) processedConstruct.style.display = 'none';
-      
-      currentPmiState = 0; // Return to WAITING next
-    }
+function formatPmiBatchWafer(batch, wafer) {
+  const b = (batch || '').trim();
+  const w = (wafer || '').trim();
+  if (!b && !w) return '—';
+  if (!b) return w;
+  if (!w) return b;
+  if (b === w) return b;
+  if (b.includes('-')) return b;
+  if (w.includes('-')) return w;
+  if (w.startsWith(b)) {
+    return `${b}-${w.substring(b.length)}`;
   }
-
-  // Start simulation loop when page is loaded
-  document.addEventListener('DOMContentLoaded', () => {
-    // Run initial cycle state right away on load
-    simulatePmiTransition();
-    
-    // Auto-cycle every 5 seconds
-    setInterval(simulatePmiTransition, 5000);
-  });
-})();
-*/
+  return `${b}-${w}`;
+}
 
 // ============================================================================
 // PMI FILENAME PARSER: Parses raw image filename into 7 distinct data fields
 // Pattern: [Date][Time]_[Batch#]-[Wafer#,checksum]_[XY]_[Site]_[Pad]_[Status]_[ProductSetup]_[Temp].bmp
 // ============================================================================
 function parsePmiFilename(rawFilename) {
-  if (!rawFilename || typeof rawFilename !== 'string') return;
+  if (!rawFilename || typeof rawFilename !== 'string') return null;
 
-  let dateTimeStr = '—';
-  let batchStr = '—';
-  let waferCheckStr = '—';
-  let xyStr = '—';
-  let sitePadStr = '—';
-  let productSetupStr = '—';
-  let tempStr = '—';
+  let clean = rawFilename.split('?')[0];
+  clean = clean.substring(clean.lastIndexOf('/') + 1);
+  clean = clean.replace(/\.[^/.]+$/, ''); // strip extension
+  clean = clean.replace(/^(raw_|annotated_|inspect_)+/i, '');
+  clean = clean.replace(/(_mask_result|_inspect|_annotated|_raw|_result)+$/i, '');
 
-  // Strip file extension if present (.bmp, .png, etc.)
-  const cleanName = rawFilename.split('.')[0];
-  const parts = cleanName.split('_');
-
-  // 1. Date & Time (e.g. 20260505114649 or 20250909102410)
-  if (parts.length > 0 && parts[0].length >= 14) {
-    const d = parts[0];
-    const year = d.substring(0, 4);
-    const month = d.substring(4, 6);
-    const day = d.substring(6, 8);
-    const hour = d.substring(8, 10);
-    const min = d.substring(10, 12);
-    const sec = d.substring(12, 14);
-    dateTimeStr = `${year}-${month}-${day} ${hour}:${min}:${sec}`;
-  } else if (parts.length > 0) {
-    dateTimeStr = parts[0];
+  const isEnd = clean.toUpperCase().endsWith('_END') || clean.toUpperCase().endsWith('.END');
+  if (clean.toUpperCase().endsWith('_END')) {
+    clean = clean.slice(0, -4);
+  } else if (clean.toUpperCase().endsWith('.END')) {
+    clean = clean.slice(0, -4);
   }
 
-  // 2 & 3. Batch# and Wafer#/Checksum (e.g. SUC720-15F0 or TR7A9073W25C5)
-  if (parts.length > 1) {
-    const subPart = parts[1];
-    if (subPart.includes('-')) {
-      const subSplit = subPart.split('-');
-      batchStr = subSplit[0] || '—';
-      waferCheckStr = subSplit[1] || '—';
+  const parts = clean.split('_');
+  const meta = {
+    dateTime: '—',
+    batch: '—',
+    waferNo: '—',
+    xyCoord: '—',
+    site: '—',
+    pad: '—',
+    sitePad: '—',
+    processCode: '—',
+    productSetup: '—',
+    temp: '—'
+  };
+
+  // Standard 8-part NXP Prober format:
+  // [0:Date][1:Batch-Wafer][2:XY][3:Site][4:Pad][5:Status][6:ProductSetup][7:Temp]
+  if (parts.length >= 8) {
+    const p0 = parts[0];
+    if (p0.length >= 14) {
+      meta.dateTime = `${p0.substring(0, 4)}-${p0.substring(4, 6)}-${p0.substring(6, 8)} ${p0.substring(8, 10)}:${p0.substring(10, 12)}:${p0.substring(12, 14)}`;
     } else {
-      batchStr = subPart.substring(0, 8) || subPart;
-      waferCheckStr = subPart.substring(8) || '—';
+      meta.dateTime = p0;
+    }
+
+    const p1 = parts[1];
+    meta.waferNo = p1;
+    if (p1.includes('-')) {
+      meta.batch = p1.split('-')[0];
+    } else {
+      const match = p1.match(/^([A-Z0-9]+?)(W[A-Z0-9]+)$/i);
+      meta.batch = match ? match[1] : p1;
+    }
+
+    meta.xyCoord = parts[2];
+    const p3 = parts[3];
+    meta.site = p3.toUpperCase().startsWith('S') && !isNaN(p3.substring(1)) ? `Site ${p3.substring(1)}` : p3;
+    const p4 = parts[4];
+    meta.pad = p4.toUpperCase().startsWith('P') && !isNaN(p4.substring(1)) ? `Pad ${p4.substring(1)}` : p4;
+    meta.sitePad = `${meta.site} / ${meta.pad}`;
+
+    meta.processCode = parts[5];
+    meta.productSetup = parts[6]; // E.g. TF1581DTAB-V7011, CF1561CCAA-V7011, 29D5B0FBAA-PC611
+
+    const p7 = parts[7];
+    if (!isNaN(p7) && p7.trim() !== '') {
+      const v = parseFloat(p7);
+      meta.temp = (p7.length === 3 || p7.length === 4) ? `${(v / 10.0).toFixed(1)}°C` : `${v}°C`;
+    } else {
+      meta.temp = p7;
+    }
+
+    return meta;
+  }
+
+  // Fallback for variable parts:
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) continue;
+    if (/^\d{14}$/.test(part)) {
+      meta.dateTime = `${part.substring(0, 4)}-${part.substring(4, 6)}-${part.substring(6, 8)} ${part.substring(8, 10)}:${part.substring(10, 12)}:${part.substring(12, 14)}`;
+    } else if (/^\d{8}$/.test(part) && i === 0) {
+      meta.dateTime = `${part.substring(0, 4)}-${part.substring(4, 6)}-${part.substring(6, 8)}`;
+    } else if (/^X-?\d+Y-?\d+$/i.test(part)) {
+      meta.xyCoord = part;
+    } else if (/^S\d+$/i.test(part)) {
+      meta.site = `Site ${part.substring(1)}`;
+    } else if (/^P\d+$/i.test(part)) {
+      meta.pad = `Pad ${part.substring(1)}`;
+    } else if (/^(OK|NG|PASS|FAIL|REJECT|PO|PO\d+)$/i.test(part)) {
+      meta.processCode = part;
+    } else if (/^\d{2,4}$/.test(part) && (i === parts.length - 1 || (i === parts.length - 2 && isEnd))) {
+      const v = parseFloat(part);
+      meta.temp = (part.length === 3 || part.length === 4) ? `${(v / 10.0).toFixed(1)}°C` : `${v}°C`;
+    } else if (meta.batch === '—') {
+      meta.waferNo = part;
+      if (part.includes('-')) {
+        meta.batch = part.split('-')[0];
+      } else {
+        const match = part.match(/^([A-Z0-9]+?)(W[A-Z0-9]+)$/i);
+        meta.batch = match ? match[1] : part;
+      }
+    } else if (meta.productSetup === '—') {
+      meta.productSetup = part;
     }
   }
 
-  // 4. XY Coordinate (e.g. X114Y12 or X37Y2)
-  if (parts.length > 2) {
-    xyStr = parts[2];
+  if (meta.site !== '—' || meta.pad !== '—') {
+    meta.sitePad = `${meta.site} / ${meta.pad}`.trim();
   }
 
-  // 5. Site# & Pad# (e.g. S32 and P1 or S10 and P15)
-  let siteVal = '';
-  let padVal = '';
-  if (parts.length > 3) siteVal = parts[3];
-  if (parts.length > 4) padVal = parts[4];
-  if (siteVal || padVal) {
-    sitePadStr = `${siteVal} / ${padVal}`.trim();
-  }
+  return meta;
+}
 
-  // 6. Product setup file name (e.g. TF1581DTAB-VL421 or 29D5B0FBAA-PC611)
-  if (parts.length > 6) {
-    productSetupStr = parts[6];
-  } else if (parts.length > 5) {
-    productSetupStr = parts[5];
-  }
+// ============================================================================
+// PMI i.MX8 BACKEND INTEGRATION (Real-time WebSocket, Polling & Fail Navigation)
+// ============================================================================
+(function initPmiWebSocketClient() {
+  const wsHost = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '127.0.0.1';
+  const wsProto = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+  const IMX8_WS_URL = `${wsProto}//${wsHost}:8001/ws`;
+  const IMX8_HTTP_BASE = `${(typeof window !== 'undefined' && window.location && window.location.protocol) ? window.location.protocol : 'http:'}//${wsHost}:8001`;
+  const LOCAL_HTTP_BASE = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : `http://${wsHost}:8002`;
 
-  // 7. Temp (e.g. 300)
-  if (parts.length > 7) {
-    tempStr = parts[7];
-  } else if (parts.length > 6 && !isNaN(parts[6])) {
-    tempStr = parts[6];
-  }
+  let activeApiBase = IMX8_HTTP_BASE;
+  let ws = null;
+  let reconnectTimer = null;
+  let pollTimer = null;
+  let failedInspections = [];
+  let currentFailIndex = -1;
+  let lastInspectionKey = '';
+  let isNavigatingFailures = false;
 
-  // Safely update DOM elements
+  // Cache UI elements
+  const statusBar = document.getElementById('pmi-status-bar');
+  const rawImg = document.getElementById('pmi-raw-img');
+  const processedImg = document.getElementById('pmi-processed-img');
+  const rawConstruct = document.getElementById('pmi-raw-construct');
+  const processedConstruct = document.getElementById('pmi-processed-construct');
+  const framesContainer = document.getElementById('pmi-frames-container');
+  const filenameDisplay = document.getElementById('pmi-filename-display');
+  const failNav = document.getElementById('pmi-fail-nav');
+  const failCounter = document.getElementById('pmi-fail-counter');
+  const prevBtn = document.getElementById('pmi-prev-btn');
+  const nextBtn = document.getElementById('pmi-next-btn');
+
   const elDateTime = document.getElementById('pmi-field-datetime');
-  const elBatch = document.getElementById('pmi-field-batch');
-  const elWafer = document.getElementById('pmi-field-wafer');
-  const elBatchWafer = document.getElementById('pmi-field-batch-wafer');
   const elXY = document.getElementById('pmi-field-xy');
+  const elBatchWafer = document.getElementById('pmi-field-batch-wafer');
   const elSitePad = document.getElementById('pmi-field-sitepad');
   const elSetup = document.getElementById('pmi-field-setup');
   const elTemp = document.getElementById('pmi-field-temp');
 
-  if (elDateTime) elDateTime.textContent = dateTimeStr;
-  if (elBatch) elBatch.textContent = batchStr;
-  if (elWafer) elWafer.textContent = waferCheckStr;
-  if (elBatchWafer) {
-    const combined = (batchStr !== '—' && waferCheckStr !== '—') ? `${batchStr}-${waferCheckStr}` : (batchStr !== '—' ? batchStr : waferCheckStr);
-    elBatchWafer.textContent = combined;
+  if (rawImg) {
+    rawImg.onerror = () => {
+      rawImg.style.display = 'none';
+      if (rawConstruct) rawConstruct.style.display = 'flex';
+    };
+    rawImg.onload = () => {
+      rawImg.style.display = 'block';
+      if (rawConstruct) rawConstruct.style.display = 'none';
+    };
   }
-  if (elXY) elXY.textContent = xyStr;
-  if (elSitePad) elSitePad.textContent = sitePadStr;
-  if (elSetup) elSetup.textContent = productSetupStr;
-  if (elTemp) elTemp.textContent = tempStr;
-}
 
-// Auto-run parser on page load & observe filename display changes
-document.addEventListener('DOMContentLoaded', () => {
-  const displayEl = document.getElementById('pmi-filename-display');
-  if (displayEl) {
-    parsePmiFilename(displayEl.textContent.trim());
+  if (processedImg) {
+    processedImg.onerror = () => {
+      processedImg.style.display = 'none';
+      if (processedConstruct) processedConstruct.style.display = 'flex';
+    };
+    processedImg.onload = () => {
+      processedImg.style.display = 'block';
+      if (processedConstruct) processedConstruct.style.display = 'none';
+    };
+  }
 
-    // Observe dynamic text changes to update 7 fields instantly
-    const observer = new MutationObserver(() => {
-      parsePmiFilename(displayEl.textContent.trim());
+  function getFilenameFromData(data) {
+    if (!data) return '';
+    if (data.image_name) return data.image_name;
+    if (data.filename) return data.filename;
+    const url = data.rawImageUrl || data.raw_image_url || data.imageUrl || data.annotatedImageUrl || '';
+    if (url) {
+      const clean = url.split('?')[0];
+      return clean.substring(clean.lastIndexOf('/') + 1);
+    }
+    return '';
+  }
+
+  function updateMetadata(data) {
+    if (!data) return;
+
+    const imgName = getFilenameFromData(data);
+    if (imgName && filenameDisplay) {
+      filenameDisplay.textContent = imgName;
+    }
+
+    const parsed = imgName ? parsePmiFilename(imgName) : null;
+
+    const dt = data.dateTime || (parsed && parsed.dateTime !== '—' ? parsed.dateTime : null) || data.datetime || data.timestamp;
+    if (elDateTime && dt) elDateTime.textContent = dt;
+
+    const xy = data.xyCoord || (parsed && parsed.xyCoord !== '—' ? parsed.xyCoord : null) || data.xy || (data.x !== undefined && data.y !== undefined ? `X${data.x}Y${data.y}` : null);
+    if (elXY && xy) elXY.textContent = xy;
+
+    const batch = data.batch || (parsed && parsed.batch !== '—' ? parsed.batch : '') || data.batch_no || '';
+    const wafer = data.waferNo || (parsed && parsed.waferNo !== '—' ? parsed.waferNo : '') || data.wafer || '';
+    if (elBatchWafer && (batch || wafer)) {
+      elBatchWafer.textContent = formatPmiBatchWafer(batch, wafer);
+    }
+
+    const site = data.site || (parsed && parsed.site !== '—' ? parsed.site : '');
+    const pad = data.pad || (parsed && parsed.pad !== '—' ? parsed.pad : '');
+    if (elSitePad && (site || pad)) {
+      elSitePad.textContent = (site && pad) ? `${site} / ${pad}`.trim() : (site || pad);
+    }
+
+    let setup = data.productSetup || data.setup || data.product_setup;
+    if ((!setup || setup === 'PO' || setup === 'OK' || setup === 'NG' || setup === '-') && parsed && parsed.productSetup !== '—') {
+      setup = parsed.productSetup;
+    }
+    if (elSetup && setup) elSetup.textContent = setup;
+
+    let temp = data.temp || data.temperature;
+    if ((!temp || temp === '-' || temp === '—') && parsed && parsed.temp !== '—') {
+      temp = parsed.temp;
+    }
+    if (elTemp && temp !== undefined && temp !== null && temp !== '-') {
+      elTemp.textContent = String(temp).includes('°C') ? temp : `${temp}`;
+    }
+  }
+
+  function resolveImageUrl(url) {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('blob:')) {
+      return url;
+    }
+    const cleanPath = url.startsWith('/') ? url : `/${url}`;
+    const base = activeApiBase || IMX8_HTTP_BASE;
+    return `${base}${cleanPath}`;
+  }
+
+  let currentRenderToken = 0;
+
+  function renderInspection(data, isLive = true) {
+    if (!data) return;
+
+    const renderToken = ++currentRenderToken;
+
+    // Direct resolution of RAW image and Annotated image from backend
+    const rawUrl = resolveImageUrl(data.rawImageUrl || data.raw_image_url || data.raw_url || data.rawImage);
+    const procUrl = resolveImageUrl(data.annotatedImageUrl || data.annotated_image_url || data.imageUrl || data.annotated_url || rawUrl);
+
+    const decision = (data.decision || data.ai_decision || (data.is_pass ? 'PASS' : (data.is_pass === false ? 'FAIL' : '')) || '').toUpperCase();
+    const isPass = decision === 'PASS' || decision === 'PASSED';
+    const isFail = decision === 'FAIL' || decision === 'FAILED';
+
+    function commitRender() {
+      if (renderToken !== currentRenderToken) return;
+
+      requestAnimationFrame(() => {
+        // 1. Commit both images simultaneously
+        if (rawImg && rawUrl) {
+          rawImg.src = rawUrl;
+          rawImg.style.display = 'block';
+          if (rawConstruct) rawConstruct.style.display = 'none';
+        }
+        if (processedImg && procUrl) {
+          processedImg.src = procUrl;
+          processedImg.style.display = 'block';
+          if (processedConstruct) processedConstruct.style.display = 'none';
+        }
+
+        // 2. Commit Status Bar in the exact same render frame
+        if (statusBar) {
+          statusBar.classList.remove('waiting', 'passed', 'failed');
+          if (isPass) {
+            statusBar.classList.add('passed');
+            statusBar.textContent = isLive ? 'PASS' : `FAIL (${currentFailIndex + 1}/${failedInspections.length})`;
+          } else if (isFail) {
+            statusBar.classList.add('failed');
+            statusBar.textContent = isLive ? 'FAIL' : `FAIL (${currentFailIndex + 1}/${failedInspections.length})`;
+          } else {
+            statusBar.classList.add('waiting');
+            statusBar.textContent = decision || 'INSPECTING';
+          }
+        }
+
+        if (framesContainer) {
+          framesContainer.classList.remove('passed', 'failed');
+          if (isPass) framesContainer.classList.add('passed');
+          else if (isFail) framesContainer.classList.add('failed');
+        }
+
+        // 3. Commit Metadata in the exact same frame
+        updateMetadata(data);
+      });
+    }
+
+    // Preload images into memory so that the image, banner and metadata are committed in 1 single frame
+    const urlsToPreload = [procUrl, rawUrl].filter(u => u && !u.startsWith('data:'));
+    if (urlsToPreload.length === 0) {
+      commitRender();
+      return;
+    }
+
+    let remaining = urlsToPreload.length;
+    let fallbackTimer = setTimeout(() => {
+      commitRender();
+    }, 250); // safety fallback in case of network stall
+
+    urlsToPreload.forEach(url => {
+      const preloadImg = new Image();
+      preloadImg.onload = preloadImg.onerror = () => {
+        remaining--;
+        if (remaining <= 0) {
+          clearTimeout(fallbackTimer);
+          commitRender();
+        }
+      };
+      preloadImg.src = url;
     });
-    observer.observe(displayEl, { childList: true, characterData: true, subtree: true });
   }
-});
+
+  function showFailAtIndex(idx) {
+    if (!failedInspections || failedInspections.length === 0) return;
+    if (idx < 0) idx = 0;
+    if (idx >= failedInspections.length) idx = failedInspections.length - 1;
+    isNavigatingFailures = true;
+    currentFailIndex = idx;
+    const item = failedInspections[currentFailIndex];
+    renderInspection(item, false);
+
+    if (failNav) failNav.style.display = 'flex';
+    if (failCounter) failCounter.textContent = `FAIL ${currentFailIndex + 1}/${failedInspections.length}`;
+    if (prevBtn) prevBtn.disabled = (currentFailIndex === 0);
+    if (nextBtn) nextBtn.disabled = (currentFailIndex === failedInspections.length - 1);
+  }
+
+  function handleBatchComplete() {
+    if (failedInspections.length > 0) {
+      if (failNav) failNav.style.display = 'flex';
+      if (currentFailIndex < 0 || currentFailIndex >= failedInspections.length) {
+        showFailAtIndex(0);
+      } else {
+        showFailAtIndex(currentFailIndex);
+      }
+    } else {
+      isNavigatingFailures = false;
+      if (failNav) failNav.style.display = 'none';
+      if (statusBar) {
+        statusBar.classList.remove('waiting', 'failed');
+        statusBar.classList.add('passed');
+        statusBar.textContent = 'PASS';
+      }
+      if (framesContainer) {
+        framesContainer.classList.remove('failed');
+        framesContainer.classList.add('passed');
+      }
+    }
+  }
+
+  // REST API Polling Fallback & Initial State Loader
+  async function fetchPmiState() {
+    try {
+      let inspRes = null;
+      let batchRes = null;
+
+      // 1. Try Primary Port 8001 (Dedicated Vision/AI Backend)
+      try {
+        const primaryCalls = await Promise.all([
+          fetch(`${IMX8_HTTP_BASE}/api/latest-inspection`, { cache: 'no-store' }).catch(() => fetch(`${IMX8_HTTP_BASE}/api/v1/latest-inspection`, { cache: 'no-store' })),
+          fetch(`${IMX8_HTTP_BASE}/api/batch-summary`, { cache: 'no-store' }).catch(() => fetch(`${IMX8_HTTP_BASE}/api/v1/batch-summary`, { cache: 'no-store' }))
+        ]);
+        if (primaryCalls[0] && primaryCalls[0].ok) {
+          inspRes = primaryCalls[0];
+          batchRes = primaryCalls[1];
+          activeApiBase = IMX8_HTTP_BASE;
+        }
+      } catch (e) {
+        // Port 8001 not responding, fallback to local host
+      }
+
+      // 2. Fallback to Local Flask Service (Port 8002 / UIIU Simulation)
+      if (!inspRes || !inspRes.ok) {
+        try {
+          const fallbackCalls = await Promise.all([
+            fetch(`${LOCAL_HTTP_BASE}/api/latest-inspection`, { cache: 'no-store' }).catch(() => null),
+            fetch(`${LOCAL_HTTP_BASE}/api/batch-summary`, { cache: 'no-store' }).catch(() => null)
+          ]);
+          if (fallbackCalls[0] && fallbackCalls[0].ok) {
+            inspRes = fallbackCalls[0];
+            batchRes = fallbackCalls[1];
+            activeApiBase = LOCAL_HTTP_BASE;
+          }
+        } catch (e) {
+          // Local fallback not available
+        }
+      }
+
+      if (batchRes && batchRes.ok) {
+        const batchData = await batchRes.json();
+        if (batchData) {
+          if (Array.isArray(batchData.failedRecords) && batchData.failedRecords.length > 0) {
+            failedInspections = batchData.failedRecords;
+          }
+          if (failedInspections.length > 0) {
+            if (failNav) failNav.style.display = 'flex';
+            if (currentFailIndex < 0) currentFailIndex = 0;
+            if (failCounter) failCounter.textContent = `FAIL ${currentFailIndex + 1}/${failedInspections.length}`;
+            if (prevBtn) prevBtn.disabled = (currentFailIndex === 0);
+            if (nextBtn) nextBtn.disabled = (currentFailIndex === failedInspections.length - 1);
+
+            if (batchData.isBatchComplete) {
+              handleBatchComplete();
+              return;
+            }
+          } else {
+            if (!isNavigatingFailures && failNav) {
+              failNav.style.display = 'none';
+            }
+          }
+        }
+      }
+
+      if (inspRes && inspRes.ok) {
+        const inspData = await inspRes.json();
+        if (inspData && !isNavigatingFailures && (inspData.rawImageUrl || inspData.imageUrl)) {
+          const key = (inspData.db_id || '') + '_' + (inspData.rawImageUrl || inspData.imageUrl || inspData.image_name || inspData.timestamp || '');
+          if (key !== lastInspectionKey) {
+            lastInspectionKey = key;
+            renderInspection(inspData, true);
+          }
+        }
+      }
+    } catch (err) {
+      // Quiet fail during regular polling
+    }
+  }
+
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    fetchPmiState();
+    pollTimer = setInterval(fetchPmiState, 1000);
+  }
+
+  function connect() {
+    startPolling();
+
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
+
+    try {
+      ws = new WebSocket(IMX8_WS_URL);
+    } catch (e) {
+      scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = () => {
+      console.log('[PMI i.MX8] Connected to WebSocket:', IMX8_WS_URL);
+      fetchPmiState();
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.event === 'NEW_INSPECTION' && payload.data) {
+          const item = payload.data;
+          const dec = (item.decision || item.ai_decision || (item.is_pass === false ? 'FAIL' : (item.is_pass ? 'PASS' : '')) || '').toUpperCase();
+          if (dec === 'FAIL' || dec === 'FAILED') {
+            const itemFname = getFilenameFromData(item);
+            const exists = failedInspections.some(f => getFilenameFromData(f) === itemFname);
+            if (!exists) {
+              failedInspections.push(item);
+            }
+            if (failNav) failNav.style.display = 'flex';
+          }
+
+          const fname = getFilenameFromData(item).toUpperCase();
+          const isEnd = fname.includes('_END') || fname.includes('.END') || item.is_end || item.is_end_signal || item.is_batch_end;
+
+          if (isEnd) {
+            handleBatchComplete();
+          } else if (!isNavigatingFailures) {
+            renderInspection(item, true);
+          }
+        } else if (payload.event === 'BATCH_COMPLETE' || payload.event === 'BATCH_FINISHED') {
+          if (payload.data && Array.isArray(payload.data.failedRecords) && payload.data.failedRecords.length > 0) {
+            failedInspections = payload.data.failedRecords;
+          }
+          handleBatchComplete();
+        } else if (payload.event === 'BATCH_START' || payload.event === 'NEW_BATCH') {
+          failedInspections = [];
+          currentFailIndex = -1;
+          isNavigatingFailures = false;
+          if (failNav) failNav.style.display = 'none';
+          if (statusBar) {
+            statusBar.classList.remove('passed', 'failed');
+            statusBar.classList.add('waiting');
+            statusBar.textContent = 'INSPECTING';
+          }
+        }
+      } catch (err) {
+        console.error('[PMI i.MX8] Error processing WebSocket message:', err);
+      }
+    };
+
+    ws.onerror = () => {
+      // Handled by onclose
+    };
+
+    ws.onclose = () => {
+      scheduleReconnect();
+    };
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, 2500);
+  }
+
+  // Prev / Next Button listeners
+  if (prevBtn) {
+    prevBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (failedInspections.length > 0) {
+        if (currentFailIndex > 0) {
+          showFailAtIndex(currentFailIndex - 1);
+        } else {
+          showFailAtIndex(0);
+        }
+      }
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (failedInspections.length > 0) {
+        if (currentFailIndex < failedInspections.length - 1) {
+          showFailAtIndex(currentFailIndex + 1);
+        } else if (currentFailIndex === -1) {
+          showFailAtIndex(0);
+        }
+      }
+    });
+  }
+
+  // Click on Status bar to start or view failure review
+  if (statusBar) {
+    statusBar.style.cursor = 'pointer';
+    statusBar.addEventListener('click', () => {
+      if (failedInspections.length > 0) {
+        if (currentFailIndex < 0 || currentFailIndex >= failedInspections.length) {
+          showFailAtIndex(0);
+        } else {
+          showFailAtIndex(currentFailIndex);
+        }
+      }
+    });
+  }
+
+  // Keyboard navigation for Fail review (ArrowLeft / ArrowRight)
+  document.addEventListener('keydown', (e) => {
+    if (failedInspections.length === 0) return;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName)) return;
+
+    if (e.key === 'ArrowLeft') {
+      if (currentFailIndex > 0) {
+        e.preventDefault();
+        showFailAtIndex(currentFailIndex - 1);
+      }
+    } else if (e.key === 'ArrowRight') {
+      if (currentFailIndex < failedInspections.length - 1) {
+        e.preventDefault();
+        showFailAtIndex(currentFailIndex + 1);
+      } else if (currentFailIndex === -1) {
+        e.preventDefault();
+        showFailAtIndex(0);
+      }
+    }
+  });
+
+  // Start WebSocket and polling when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', connect);
+  } else {
+    connect();
+  }
+})();
 
 // ============================================================================
 // SENSOR SIMULATION CONTROL (ระบบควบคุมเซนเซอร์จำลอง FPC ผ่าน UI และคีย์บอร์ด)

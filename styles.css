@@ -434,9 +434,8 @@ body {
 
 #home .info-box.disconnected,
 #home .right-box.disconnected {
-  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-  border: 1px solid #cbd5e1;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+  background: #ff5757 !important;
+  box-shadow: 0 0 0 2px rgba(220, 53, 69, .12) inset !important;
 }
 
 #home .info-box.tag-active,
@@ -640,7 +639,7 @@ body {
 .pmi-frames-container {
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   gap: 14px;
   width: 100%;
@@ -648,10 +647,36 @@ body {
   margin: 6px 0;
 }
 
+/* Individual Frame Wrapper */
+.pmi-frame-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  max-width: 290px;
+  gap: 6px;
+}
+
+/* Header Bar above each viewport (Unobstructed View) */
+.pmi-frame-header {
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  background: #f1f5f9;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 5px;
+  padding: 4px 14px;
+  line-height: 1.2;
+  box-sizing: border-box;
+  width: 100%;
+  text-align: center;
+}
+
 /* Outer Square Box (Brushed Metal / Grey Panel look) - Scaled for horizontal dual screens */
 .pmi-outer-frame {
   width: 100%;
-  max-width: 290px;
   aspect-ratio: 1 / 1;
   background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
   border: 3px solid #94a3b8;
@@ -681,7 +706,7 @@ body {
   overflow: hidden;
 }
 
-/* Mock up PMI: Camera image element inside viewport */
+/* Camera image element inside viewport */
 .pmi-camera-image {
   position: absolute;
   top: 0;
@@ -690,16 +715,10 @@ body {
   height: 100%;
   object-fit: cover;
   z-index: 0;
-  /* Placed behind grid lines and crosshairs */
   transition: opacity 0.3s ease;
 }
 
-/* Mock up PMI: Grayscale styling for Raw feed */
-.pmi-camera-image.grayscale {
-  filter: grayscale(100%) contrast(1.1);
-}
-
-/* Mock up PMI: Highlight lens overlay for processed camera viewport */
+/* Highlight lens overlay for processed camera viewport */
 .pmi-highlight-overlay {
   position: absolute;
   top: 0;
@@ -708,37 +727,46 @@ body {
   height: 100%;
   pointer-events: none;
   z-index: 5;
-  /* Placed on top of image and grid */
   transition: box-shadow 0.3s ease, background-color 0.3s ease;
   box-shadow: inset 0 0 0 transparent;
 }
 
-/* Mock up PMI: Green highlight for PASSED status on the right viewport */
+/* Solid highlight for PASSED status on the right viewport (No glow) */
+.pmi-frames-container.passed .pmi-frame-wrapper:last-child .pmi-outer-frame,
 .pmi-frames-container.passed .pmi-outer-frame:last-child {
   border-color: #16a34a !important;
-  /* Force green border */
-  box-shadow: 0 0 15px rgba(22, 163, 74, 0.6);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: border-color 0.3s ease;
 }
 
-.pmi-frames-container.passed .pmi-outer-frame:last-child .pmi-highlight-overlay {
-  box-shadow: inset 0 0 25px rgba(22, 163, 74, 0.85);
-  background-color: rgba(22, 163, 74, 0.05);
-  /* Subtle green tint overlay */
+.pmi-frames-container.passed .pmi-frame-wrapper:last-child .pmi-frame-header {
+  color: #15803d;
+  border-color: #86efac;
+  background: #f0fdf4;
 }
 
-/* Mock up PMI: Red highlight for FAILED status on the right viewport */
+.pmi-frames-container.passed .pmi-outer-frame:last-child .pmi-highlight-overlay,
+.pmi-frames-container.passed .pmi-frame-wrapper:last-child .pmi-highlight-overlay {
+  box-shadow: none;
+  background-color: transparent;
+}
+
+/* Solid highlight for FAILED status on the right viewport (No glow) */
+.pmi-frames-container.failed .pmi-frame-wrapper:last-child .pmi-outer-frame,
 .pmi-frames-container.failed .pmi-outer-frame:last-child {
   border-color: #dc2626 !important;
-  /* Force red border */
-  box-shadow: 0 0 15px rgba(220, 38, 38, 0.6);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: border-color 0.3s ease;
 }
 
-.pmi-frames-container.failed .pmi-outer-frame:last-child .pmi-highlight-overlay {
-  box-shadow: inset 0 0 25px rgba(220, 38, 38, 0.85);
-  background-color: rgba(220, 38, 38, 0.05);
-  /* Subtle red tint overlay */
+.pmi-frames-container.failed .pmi-frame-wrapper:last-child .pmi-frame-header {
+  color: #b91c1c;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.pmi-frames-container.failed .pmi-outer-frame:last-child .pmi-highlight-overlay,
+.pmi-frames-container.failed .pmi-frame-wrapper:last-child .pmi-highlight-overlay {
+  box-shadow: none;
+  background-color: transparent;
 }
 
 /* Under Construction warning graphic inside the nested square */
@@ -1003,47 +1031,48 @@ body {
   scrollbar-color: #cbd5e1 transparent;
 }
 
-/* PMI Parsed Data Fields Grid (Expanded 2-Column x 3-Row High Impact Layout) */
+/* PMI Parsed Data Fields Grid (Compact Centered 2-Column x 3-Row Layout) */
 .pmi-parsed-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
+  gap: 12px;
   width: 100%;
+  max-width: 760px;
   box-sizing: border-box;
-  margin-top: 18px;
+  margin: 16px auto 0 auto;
 }
 
 .pmi-data-card {
   background: #ffffff;
   border: 1.5px solid #cbd5e1;
-  border-radius: 9px;
-  padding: 12px 18px;
+  border-radius: 8px;
+  padding: 10px 16px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04);
   transition: all 0.2s ease;
-  min-height: 78px;
+  min-height: 66px;
   box-sizing: border-box;
 }
 
 .pmi-data-card:hover {
   border-color: #0284c7;
-  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.18);
+  box-shadow: 0 4px 10px rgba(2, 132, 199, 0.16);
   transform: translateY(-1px);
 }
 
 .pmi-card-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
   color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.8px;
-  margin-bottom: 4px;
+  letter-spacing: 0.7px;
+  margin-bottom: 2px;
 }
 
 .pmi-card-value {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 900;
   color: #0f172a;
   font-family: 'Consolas', 'Courier New', monospace;
@@ -1051,6 +1080,58 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.2;
+}
+
+/* PMI Fail Review Navigation Bar (2 Large Touch-Friendly Buttons) */
+.pmi-fail-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 760px;
+  margin: 14px auto 0 auto;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.pmi-nav-btn {
+  flex: 1;
+  height: 54px;
+  background: #dc2626;
+  color: #ffffff;
+  border: 2px solid #b91c1c;
+  border-radius: 10px;
+  font-size: 28px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.35);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.pmi-nav-btn:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #991b1b;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(185, 28, 28, 0.45);
+}
+
+.pmi-nav-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 2px 6px rgba(185, 28, 28, 0.3);
+}
+
+.pmi-nav-btn:disabled {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #94a3b8;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* ============================================================================

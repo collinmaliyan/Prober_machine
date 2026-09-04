@@ -277,63 +277,38 @@
                                  เป็นกรอบจัดกลุ่มหน้าจอมอนิเตอร์รูปภาพ PMI ทั้งฝั่งซ้ายและฝั่งขวาให้อยู่คู่กันในแนวนอน -->
                             <div class="pmi-frames-container" id="pmi-frames-container">
                                 <!-- Outer Square Frame 1 (Original / Raw View) -->
-                                <div class="pmi-outer-frame">
-                                    <div class="pmi-inner-frame">
-                                        <!-- Mock up PMI: Image element for raw viewport -->
-                                        <img src="/pmi_inspection.png" class="pmi-camera-image grayscale"
-                                            id="pmi-raw-img" style="display: none;">
+                                <div class="pmi-frame-wrapper">
+                                    <div class="pmi-frame-header">RAW VIEW</div>
+                                    <div class="pmi-outer-frame">
+                                        <div class="pmi-inner-frame">
+                                            <!-- Camera image element for raw viewport -->
+                                            <img src="/pmi_inspection.png" class="pmi-camera-image"
+                                                id="pmi-raw-img" style="display: none;">
 
-                                        <!-- Camera grid lines overlay -->
-                                        <div class="camera-grid"></div>
-                                        <!-- Target crosshair in center -->
-                                        <div class="camera-crosshair"></div>
-
-                                        <!-- Blinking REC or Status dot -->
-                                        <div class="camera-status-tag">
-                                            <span class="status-dot pulsing"></span>
-                                            <span>RAW VIEW</span>
-                                        </div>
-
-                                        <!-- Corner digital readouts -->
-                                        <div class="camera-coords top-right">CAM_01</div>
-                                        <div class="camera-coords bottom-right">X: 0.00 Y: 0.00</div>
-
-                                        <!-- Under-construction fallback indicator -->
-                                        <div class="pmi-under-construction" id="pmi-raw-construct">
-                                            <div class="construction-icon">🛠️</div>
-                                            <div class="construction-text">UNDER<br>CONSTRUCTION</div>
+                                            <!-- Under-construction fallback indicator -->
+                                            <div class="pmi-under-construction" id="pmi-raw-construct">
+                                                <div class="construction-icon">🛠️</div>
+                                                <div class="construction-text">UNDER<br>CONSTRUCTION</div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
                                 <!-- Outer Square Frame 2 (Processed / Highlighted View) -->
-                                <div class="pmi-outer-frame">
-                                    <div class="pmi-inner-frame">
-                                        <!-- Mock up PMI: Image element for processed viewport -->
-                                        <img src="/pmi_inspection.png" class="pmi-camera-image" id="pmi-processed-img"
-                                            style="display: none;">
-                                        <!-- Mock up PMI: Lens overlay for passed/failed highlights -->
-                                        <div class="pmi-highlight-overlay"></div>
+                                <div class="pmi-frame-wrapper">
+                                    <div class="pmi-frame-header">PROCESSED VIEW</div>
+                                    <div class="pmi-outer-frame">
+                                        <div class="pmi-inner-frame">
+                                            <!-- Image element for processed viewport -->
+                                            <img src="/pmi_inspection.png" class="pmi-camera-image" id="pmi-processed-img"
+                                                style="display: none;">
+                                            <div class="pmi-highlight-overlay"></div>
 
-                                        <!-- Camera grid lines overlay -->
-                                        <div class="camera-grid"></div>
-                                        <!-- Target crosshair in center -->
-                                        <div class="camera-crosshair"></div>
-
-                                        <!-- Blinking REC or Status dot -->
-                                        <div class="camera-status-tag">
-                                            <span class="status-dot pulsing"></span>
-                                            <span>PROCESSED VIEW</span>
-                                        </div>
-
-                                        <!-- Corner digital readouts -->
-                                        <div class="camera-coords top-right">CAM_02</div>
-                                        <div class="camera-coords bottom-right">X: 0.00 Y: 0.00</div>
-
-                                        <!-- Under-construction fallback indicator -->
-                                        <div class="pmi-under-construction" id="pmi-processed-construct">
-                                            <div class="construction-icon">🛠️</div>
-                                            <div class="construction-text">UNDER<br>CONSTRUCTION</div>
+                                            <!-- Under-construction fallback indicator -->
+                                            <div class="pmi-under-construction" id="pmi-processed-construct">
+                                                <div class="construction-icon">🛠️</div>
+                                                <div class="construction-text">UNDER<br>CONSTRUCTION</div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -342,6 +317,12 @@
                             <!-- Hidden Image Filename store for JS Parser -->
                             <span id="pmi-filename-display"
                                 style="display: none;">20260505114649_TR7A9073W25C5_X37Y2_S10_P15_NM_29D5B0FBAA-PC611_300.bmp</span>
+
+                            <!-- Fail Review Navigation (Shows when batch finishes with defects) -->
+                            <div class="pmi-fail-nav" id="pmi-fail-nav" style="display: none;">
+                                <button type="button" class="pmi-nav-btn" id="pmi-prev-btn" title="Previous Defect (←)">◀</button>
+                                <button type="button" class="pmi-nav-btn" id="pmi-next-btn" title="Next Defect (→)">▶</button>
+                            </div>
 
                             <!-- 4. PMI Parsed Data Fields Grid:
                                  จัดเรียงแบบ 2 คอลัมน์ 3 แถวสมมาตรเป๊ะ (ฝั่งซ้าย = Date&Time, Batch#-Wafer#, Product Setup / ฝั่งขวา = XY, Site#/Pad#, Temp) -->
@@ -356,7 +337,7 @@
                                 </div>
                                 <div class="pmi-data-card">
                                     <span class="pmi-card-label">Batch# - Wafer#</span>
-                                    <span class="pmi-card-value" id="pmi-field-batch-wafer">TR7A9073-W25C5</span>
+                                    <span class="pmi-card-value" id="pmi-field-batch-wafer">SUC720-15F0</span>
                                 </div>
                                 <div class="pmi-data-card">
                                     <span class="pmi-card-label">Site# / Pad#</span>
@@ -955,7 +936,7 @@
     </div>
 
 
-    <script src="script.js?v=20260901_v4"></script>
+    <script src="script.js?v=20260902_pmi_v2"></script>
 
     <div id="mismatch-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mm-title"
         style="display:none">

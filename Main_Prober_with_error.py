@@ -1837,17 +1837,16 @@ class FPCReader:
         self.running = False
 
     def _read_once_ascii(self):
-        epc_hex = try_read_epc(self.ser, attempts=3) if self.connect() else None
+        epc_hex = try_read_epc(self.ser, attempts=2) if self.connect() else None
         if not epc_hex:
             return None
         try:
             raw = bytes.fromhex(epc_hex)
-            raw = raw.split(b"\x00", 1)[0]
-            s = raw.decode("ascii", errors="ignore")
-            clean = "".join(c for c in s if 32 <= ord(c) <= 126).strip()
-            return clean if clean else epc_hex
-        except Exception:
-            return epc_hex
+        except ValueError:
+            return None
+        raw = raw.split(b"\x00", 1)[0]
+        s = raw.decode("ascii", errors="ignore")
+        return "".join(c for c in s if 32 <= ord(c) <= 126).strip() or None
 
     def _clear(self, reason=""):
         had_tag = bool(self.fpc_current)
@@ -1873,6 +1872,7 @@ class FPCReader:
 
     def _loop(self):
         print("[FPC] Sensor-Gated loop starting...")
+        gap = getattr(Config, "YRM100_GAP_S", 0.5)
         while self.running:
             try:
                 active = self.sensor.is_active()
@@ -1894,9 +1894,9 @@ class FPCReader:
                     else:
                         # still active; within window?
                         if now <= self.window_until:
-                            if not self.fpc_current:
-                                epc_ascii = self._read_once_ascii()
-                                if epc_ascii:
+                            epc_ascii = self._read_once_ascii()
+                            if epc_ascii:
+                                if epc_ascii != self.fpc_current:
                                     self.fpc_current = epc_ascii
                                     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                     self.current_data.update({"fpc_id": epc_ascii, "timestamp": ts})
@@ -1907,13 +1907,8 @@ class FPCReader:
                         else:
                             # window expired:
                             if not self.fpc_current:
-                                # In PC / simulation test mode, keep window open while sensor is active
-                                is_simulator = getattr(self.sensor, '_simulate', False) or (self.sensor.mode == 'GPIO' and self.sensor.GPIO is None)
-                                if is_simulator:
-                                    self.window_until = now + float(getattr(Config, 'FPC_WINDOW_S', 10.0))
-                                else:
-                                    self._clear("window timeout (no read)")
-                                    self.block_until_low = True
+                                self._clear("window timeout (no read)")
+                                self.block_until_low = True
                             else:
                                 if not self.window_committed and not self.window_just_closed:
                                     self.window_just_closed = True
@@ -1927,11 +1922,7 @@ class FPCReader:
                         if self.fpc_current:
                             self._clear("sensor LOW (idle)")
 
-                # Gentle sleep to protect hardware and avoid flickering RF burst
-                if active and not self.fpc_current:
-                    time.sleep(0.4)  # Scan gently every 400ms
-                else:
-                    time.sleep(0.5)  # Idle or already holding tag -> rest 500ms
+                time.sleep(gap)
             except Exception as e:
                 print("[FPC] loop error:", e)
                 self.close()
@@ -2082,6 +2073,11 @@ class RFIDApp:
             t = threading.Thread(target=self._mockup_simulator_loop, daemon=True)
             t.start()
 
+        # --- [PMI SIMULATION & IMAGE SERVICE STATE] ---
+        self._pmi_sim_index = 0
+        self._pmi_failed_records = []
+        self._pmi_last_update = 0
+
         self._setup_routes()
 
     def admin_required(self, fn):
@@ -2126,6 +2122,112 @@ class RFIDApp:
         @self.app.route('/api/current_data')
         def get_current_data():
             return self._get_current_data()
+
+        # =====================================================================
+        # --- [PMI SIMULATION & IMAGE SERVICE (UIIU Integration)] ---
+        # =====================================================================
+        def _get_pmi_dirs():
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            candidates = [
+                os.path.join(base_dir, 'UIIU', 'simulation'),
+                os.path.join(base_dir, 'UIIU', 'datasets'),
+                os.path.join(base_dir, 'UIIU'),
+                os.path.join(base_dir, '..', 'UIIU', 'simulation'),
+                os.path.join(base_dir, '..', 'UIIU', 'datasets'),
+                os.path.join(base_dir, '..', 'UIIU'),
+                os.path.join(base_dir, '..', 'PUNPUNJA', 'PROJECT', 'UIIU', 'simulation'),
+                os.path.join(base_dir, '..', 'PUNPUNJA', 'PROJECT', 'UIIU', 'datasets'),
+                os.path.join(base_dir, '..', 'PUNPUNJA', 'PROJECT', 'UIIU'),
+                '/home/nxp1/Desktop/PUNPUNJA/PROJECT/UIIU/simulation',
+                '/home/nxp1/Desktop/PUNPUNJA/PROJECT/UIIU/datasets',
+                '/home/nxp1/Desktop/PUNPUNJA/PROJECT/UIIU',
+                '/home/root/UIIU/simulation',
+                '/home/root/UIIU/datasets',
+                '/home/root/UIIU',
+                os.path.join(base_dir, 'simulation'),
+            ]
+            valid = []
+            for c in candidates:
+                if os.path.exists(c) and os.path.isdir(c):
+                    valid.append(os.path.abspath(c))
+            return valid
+
+        def _get_pmi_images():
+            dirs = _get_pmi_dirs()
+            files = []
+            exts = ('.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG')
+            for d in dirs:
+                try:
+                    for root, _, filenames in os.walk(d):
+                        for f in filenames:
+                            if f.endswith(exts):
+                                files.append((root, f))
+                except Exception:
+                    pass
+            return files
+
+        @self.app.route('/api/latest-inspection')
+        @self.app.route('/api/v1/latest-inspection')
+        def pmi_latest_inspection():
+            images = _get_pmi_images()
+            now = time.time()
+            if images:
+                # Step to next image every 2.5 seconds
+                if now - self._pmi_last_update > 2.5:
+                    self._pmi_sim_index = (self._pmi_sim_index + 1) % len(images)
+                    self._pmi_last_update = now
+
+                img_dir, img_name = images[self._pmi_sim_index % len(images)]
+                upper_name = img_name.upper()
+                is_fail = ('FAIL' in upper_name or 'NG' in upper_name or 'DEFECT' in upper_name)
+                decision = 'FAIL' if is_fail else 'PASS'
+
+                record = {
+                    "status": "success",
+                    "image_name": img_name,
+                    "filename": img_name,
+                    "rawImageUrl": f"/api/pmi/image/{img_name}",
+                    "annotatedImageUrl": f"/api/pmi/image/{img_name}",
+                    "imageUrl": f"/api/pmi/image/{img_name}",
+                    "decision": decision,
+                    "ai_decision": decision,
+                    "is_pass": (not is_fail),
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+
+                if is_fail and not any(f.get('image_name') == img_name for f in self._pmi_failed_records):
+                    self._pmi_failed_records.append(record)
+                    if len(self._pmi_failed_records) > 20:
+                        self._pmi_failed_records.pop(0)
+
+                return jsonify(record)
+            else:
+                return jsonify({
+                    "status": "success",
+                    "image_name": "pmi_inspection.png",
+                    "rawImageUrl": "/pmi_inspection.png",
+                    "annotatedImageUrl": "/pmi_inspection.png",
+                    "decision": "PASS",
+                    "is_pass": True,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+
+        @self.app.route('/api/batch-summary')
+        @self.app.route('/api/v1/batch-summary')
+        def pmi_batch_summary():
+            return jsonify({
+                "status": "success",
+                "isBatchComplete": False,
+                "failedRecords": self._pmi_failed_records
+            })
+
+        @self.app.route('/api/pmi/image/<path:img_filename>')
+        def serve_pmi_image(img_filename):
+            images = _get_pmi_images()
+            for img_dir, name in images:
+                if name == img_filename:
+                    return send_from_directory(img_dir, name)
+            return send_from_directory('.', img_filename)
 
         @self.app.route('/api/simulate/cassette')
         def simulate_cassette():
@@ -2201,11 +2303,6 @@ class RFIDApp:
                 else:
                     self.fpc_reader.sensor._sim_state = not curr
                 new_state = self.fpc_reader.sensor._sim_state
-                if new_state:
-                    self.fpc_reader.block_until_low = False
-                    self.fpc_reader.window_open = False  # trigger fresh rising edge
-                else:
-                    self.fpc_reader._clear("Sensor switched to OFF via API/UI")
                 print(f"[SENSOR API] Sensor simulation state -> {'ACTIVE (ON)' if new_state else 'INACTIVE (OFF)'}")
                 return jsonify({"status": "success", "sensor_active": new_state})
             return jsonify({"status": "error", "message": "FPC reader or sensor not available"}), 400
