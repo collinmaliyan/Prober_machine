@@ -806,21 +806,50 @@ class DatabaseManager:
     @staticmethod
     def get_cassette_details(cassette_id):
         """
-        [CONFIRM DATA: CASSETTE] ดึงข้อมูล Cassette จากตาราง smart_store_cabinet
+        [CONFIRM DATA: CASSETTE] ดึงข้อมูล Cassette จากตาราง smart_store_cabinet หรือ cassette
+        รองรับทั้ง Direct Hex และ Reversed Byte Hex (Endianness)
         """
         if not cassette_id:
             return None
         clean_tag = str(cassette_id).strip()
+        norm_tag = clean_tag.replace(' ', '').replace(':', '').replace('-', '').lower()
+        
+        # Prepare byte-reversed hex if length is even (e.g. OMNIKEY Little-Endian output)
+        rev_tag = norm_tag
+        if len(norm_tag) >= 4 and len(norm_tag) % 2 == 0:
+            try:
+                bytes_list = [norm_tag[i:i+2] for i in range(0, len(norm_tag), 2)]
+                rev_tag = ''.join(reversed(bytes_list))
+            except Exception:
+                rev_tag = norm_tag
+
         try:
             conn = DatabaseManager.get_store_connection()
             cur = conn.cursor(dictionary=True)
+            # 1. ค้นหาใน smart_store_cabinet (ตาราง Cassette Tag จาก Smart Store)
             cur.execute("""
                 SELECT tag_id, lot_id, batch_id, mapping_time
                 FROM smart_store_cabinet
-                WHERE LOWER(REPLACE(tag_id, ' ', '')) = LOWER(REPLACE(%s, ' ', ''))
+                WHERE LOWER(REPLACE(tag_id, ' ', '')) = %s
+                   OR LOWER(REPLACE(tag_id, ' ', '')) = %s
                 LIMIT 1
-            """, (clean_tag,))
+            """, (norm_tag, rev_tag))
             row = cur.fetchone()
+
+            # 2. ถ้าไม่พบ ให้ค้นหาในตาราง cassette สำรอง
+            if not row:
+                try:
+                    cur.execute("""
+                        SELECT cassette_id AS tag_id, lot_id, batch_id, NULL AS mapping_time
+                        FROM cassette
+                        WHERE LOWER(REPLACE(cassette_id, ' ', '')) = %s
+                           OR LOWER(REPLACE(cassette_id, ' ', '')) = %s
+                        LIMIT 1
+                    """, (norm_tag, rev_tag))
+                    row = cur.fetchone()
+                except Exception:
+                    pass
+
             cur.close()
             conn.close()
 
@@ -833,28 +862,45 @@ class DatabaseManager:
                     "batch_id": row.get('batch_id'),
                     "mapping_time": m_time,
                     "last_cleaning": None,
-                    "next_cleaning": None
+                    "next_cleaning": None,
+                    "not_found": False,
+                    "status": "FOUND",
+                    "mismatch_type": None,
+                    "mismatch_message": None,
+                    "message": None
                 }
             else:
+                msg = f"Tag Cassette ({clean_tag}) ไม่พบข้อมูลในระบบ Smart Store หรือยังไม่ได้ทำ Data Mapping จากตู้ Store"
                 return {
                     "cassette_id": clean_tag,
                     "machine_status": "Unmapped",
-                    "lot_id": f"UNMAPPED-{clean_tag[-6:]}",
-                    "batch_id": "NOT_IN_STORE",
+                    "lot_id": clean_tag,
+                    "batch_id": clean_tag,
                     "mapping_time": None,
                     "last_cleaning": None,
-                    "next_cleaning": None
+                    "next_cleaning": None,
+                    "not_found": True,
+                    "status": "NOT_FOUND",
+                    "mismatch_type": "not_found",
+                    "mismatch_message": msg,
+                    "message": msg
                 }
         except Exception as e:
             print(f"[CASSETTE STORE ERROR] {e}")
+            msg = f"Tag Cassette ({clean_tag}) ไม่พบข้อมูลในระบบ Smart Store หรือยังไม่ได้ทำ Data Mapping จากตู้ Store"
             return {
                 "cassette_id": clean_tag,
-                "machine_status": "Active",
-                "lot_id": f"LOT-{clean_tag}",
-                "batch_id": f"BATCH-{clean_tag}",
+                "machine_status": "Unmapped",
+                "lot_id": clean_tag,
+                "batch_id": clean_tag,
                 "mapping_time": None,
                 "last_cleaning": None,
-                "next_cleaning": None
+                "next_cleaning": None,
+                "not_found": True,
+                "status": "NOT_FOUND",
+                "mismatch_type": "not_found",
+                "mismatch_message": msg,
+                "message": msg
             }
 
     @staticmethod
@@ -875,6 +921,227 @@ class DatabaseManager:
         except Exception as e:
             print(f"[ERROR] DB insert (cassette_reader_log): {e}")
             return False
+
+    @staticmethod
+    def get_all_probe_card_mappings():
+        """
+        [MAPPINGS] Fetch all rows from smart_store_probe_card.
+        Returns a dictionary with 'source', 'total', and 'mappings'.
+        """
+        is_mysql = DatabaseManager.is_mysql_available()
+        source = "Smart Store Probe Card (MySQL Database)" if is_mysql else "Smart Store Probe Card (Local SQLite Cache)"
+        mappings = []
+        try:
+            conn = DatabaseManager.get_store_connection()
+            cur = conn.cursor(dictionary=True)
+            cur.execute("""
+                SELECT fpc_id, header_id, touchdown, latest_pm, timer, comment
+                FROM smart_store_probe_card
+                ORDER BY fpc_id ASC
+            """)
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+
+            for r in rows:
+                pm_val = r.get('latest_pm')
+                pm_str = None
+                if pm_val:
+                    if hasattr(pm_val, 'strftime'):
+                        pm_str = pm_val.strftime('%Y-%m-%d')
+                    else:
+                        pm_str = str(pm_val).split(' ')[0]
+
+                timer_val = r.get('timer')
+                timer_str = None
+                if timer_val:
+                    if hasattr(timer_val, 'strftime'):
+                        timer_str = timer_val.strftime('%Y-%m-%d %H:%M:%S')
+                    else:
+                        timer_str = str(timer_val)
+
+                mappings.append({
+                    "fpc_id": r.get('fpc_id') or '',
+                    "header_id": r.get('header_id') or '',
+                    "touchdown": r.get('touchdown') if r.get('touchdown') is not None else 0,
+                    "latest_pm": pm_str or '',
+                    "timer": timer_str or '',
+                    "comment": r.get('comment') or ''
+                })
+        except Exception as e:
+            print(f"[STORE MAPPINGS ERROR] {e}")
+
+        return {
+            "status": "success",
+            "source": source,
+            "total": len(mappings),
+            "mappings": mappings
+        }
+
+    @staticmethod
+    def sync_smart_store_probe_card(employee_id="ADMIN"):
+        """
+        [SYNC] Force fetch all rows from Central MySQL and cache them into local SQLite.
+        """
+        if not DatabaseManager.is_mysql_available():
+            res = DatabaseManager.get_all_probe_card_mappings()
+            res["status"] = "warning"
+            res["message"] = "Cannot connect to Smart Store MySQL. Showing local cache."
+            return res
+
+        try:
+            # 1. Fetch from Central MySQL
+            my_conn = mysql.connector.connect(**Config.DB_CONFIG)
+            my_cur = my_conn.cursor(dictionary=True)
+            my_cur.execute("""
+                SELECT fpc_id, header_id, touchdown, latest_pm, timer, comment
+                FROM smart_store_probe_card
+                ORDER BY fpc_id ASC
+            """)
+            rows = my_cur.fetchall()
+            my_cur.close()
+            my_conn.close()
+
+            # 2. Write to local SQLite
+            sq_conn = DatabaseManager.get_local_connection()
+            sq_cur = sq_conn.cursor()
+            for r in rows:
+                pm_str = str(r.get('latest_pm')) if r.get('latest_pm') else None
+                timer_str = str(r.get('timer')) if r.get('timer') else None
+                sq_cur.execute("""
+                    INSERT OR REPLACE INTO smart_store_probe_card 
+                    (fpc_id, header_id, touchdown, latest_pm, timer, comment)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    r.get('fpc_id'),
+                    r.get('header_id'),
+                    r.get('touchdown') if r.get('touchdown') is not None else 0,
+                    pm_str,
+                    timer_str,
+                    r.get('comment')
+                ))
+            sq_conn.commit()
+            sq_conn.close()
+
+            # 3. Log sync action to system_log
+            try:
+                DatabaseManager.store_system_log(employee_id, "sync_smart_store", "127.0.0.1")
+            except Exception:
+                pass
+
+            res = DatabaseManager.get_all_probe_card_mappings()
+            res["message"] = f"Successfully synchronized {len(rows)} records from Smart Store MySQL"
+            return res
+        except Exception as e:
+            print(f"[STORE SYNC ERROR] {e}")
+            res = DatabaseManager.get_all_probe_card_mappings()
+            res["status"] = "error"
+            res["message"] = f"Sync failed: {str(e)}"
+            return res
+
+    @staticmethod
+    def get_all_cabinet_mappings():
+        """
+        [CABINET MAPPINGS] Fetch all rows from smart_store_cabinet.
+        Returns a dictionary with 'source', 'total', and 'mappings'.
+        """
+        is_mysql = DatabaseManager.is_mysql_available()
+        source = "Smart Store Cabinet (MySQL Database)" if is_mysql else "Smart Store Cabinet (Local SQLite Cache)"
+        mappings = []
+        try:
+            conn = DatabaseManager.get_store_connection()
+            cur = conn.cursor(dictionary=True)
+            cur.execute("""
+                SELECT tag_id, lot_id, batch_id, mapping_time
+                FROM smart_store_cabinet
+                ORDER BY tag_id ASC
+            """)
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+
+            for r in rows:
+                m_time = r.get('mapping_time')
+                time_str = None
+                if m_time:
+                    if hasattr(m_time, 'strftime'):
+                        time_str = m_time.strftime('%Y-%m-%d %H:%M:%S')
+                    else:
+                        time_str = str(m_time)
+
+                mappings.append({
+                    "tag_id": r.get('tag_id') or '',
+                    "lot_id": r.get('lot_id') or '',
+                    "batch_id": r.get('batch_id') or '',
+                    "mapping_time": time_str or ''
+                })
+        except Exception as e:
+            print(f"[CABINET MAPPINGS ERROR] {e}")
+
+        return {
+            "status": "success",
+            "source": source,
+            "total": len(mappings),
+            "mappings": mappings
+        }
+
+    @staticmethod
+    def sync_smart_store_cabinet(employee_id="ADMIN"):
+        """
+        [SYNC CABINET] Force fetch all rows from Central MySQL and cache them into local SQLite.
+        """
+        if not DatabaseManager.is_mysql_available():
+            res = DatabaseManager.get_all_cabinet_mappings()
+            res["status"] = "warning"
+            res["message"] = "Cannot connect to Smart Store MySQL. Showing local cache."
+            return res
+
+        try:
+            # 1. Fetch from Central MySQL
+            my_conn = mysql.connector.connect(**Config.DB_CONFIG)
+            my_cur = my_conn.cursor(dictionary=True)
+            my_cur.execute("""
+                SELECT tag_id, lot_id, batch_id, mapping_time
+                FROM smart_store_cabinet
+                ORDER BY tag_id ASC
+            """)
+            rows = my_cur.fetchall()
+            my_cur.close()
+            my_conn.close()
+
+            # 2. Write to local SQLite
+            sq_conn = DatabaseManager.get_local_connection()
+            sq_cur = sq_conn.cursor()
+            for r in rows:
+                time_str = str(r.get('mapping_time')) if r.get('mapping_time') else None
+                sq_cur.execute("""
+                    INSERT OR REPLACE INTO smart_store_cabinet 
+                    (tag_id, lot_id, batch_id, mapping_time)
+                    VALUES (?, ?, ?, ?)
+                """, (
+                    r.get('tag_id'),
+                    r.get('lot_id'),
+                    r.get('batch_id'),
+                    time_str
+                ))
+            sq_conn.commit()
+            sq_conn.close()
+
+            # 3. Log sync action to system_log
+            try:
+                DatabaseManager.store_system_log(employee_id, "sync_smart_store_cabinet", "127.0.0.1")
+            except Exception:
+                pass
+
+            res = DatabaseManager.get_all_cabinet_mappings()
+            res["message"] = f"Successfully synchronized {len(rows)} records from Smart Store Cabinet MySQL"
+            return res
+        except Exception as e:
+            print(f"[CABINET SYNC ERROR] {e}")
+            res = DatabaseManager.get_all_cabinet_mappings()
+            res["status"] = "error"
+            res["message"] = f"Cabinet sync failed: {str(e)}"
+            return res
 
 
 
@@ -1153,13 +1420,44 @@ def set_q(ser, q_val):
     fr = yrm_read_frame(ser, timeout_s=0.6)
     return bool(fr and fr[0] == 0x01 and fr[1] == 0x0E and fr[2] == b"\x00")
 
+def set_query_session(ser, session_val=0, target_val=0):
+    """
+    Configure YRM100 Gen2 Session (0=S0, 1=S1, 2=S2, 3=S3) and Target (0=A, 1=B).
+    Setting Session S0 (session_val=0) ensures tag chips revert immediately to Flag A,
+    preventing tag disappearance when resting continuously on the reader antenna.
+    """
+    try:
+        cur = get_query_params(ser)
+        if not cur: return False
+        msb, lsb = cur
+        # msb: DR(bit 7), M(bits 5-6), TRext(bit 4), Sel(bits 2-3), Session(bits 0-1)
+        msb = (msb & 0b11111100) | (session_val & 0b11)
+        # lsb: Target(bit 7), Q(bits 3-6), reserved(bits 0-2)
+        lsb = (lsb & 0b01111111) | ((target_val & 1) << 7)
+        payload = bytes([msb, lsb])
+        body = bytes([0x00, 0x0E, 0x00, 0x02]) + payload
+        cs = sum(body) & 0xFF
+        frame = bytes([0xBB]) + body + bytes([cs, 0x7E])
+        ser.write(frame)
+        fr = yrm_read_frame(ser, timeout_s=0.6)
+        ok = bool(fr and fr[0] == 0x01 and fr[1] == 0x0E and fr[2] == b"\x00")
+        if ok:
+            print(f"[YRM100] Session configured: S{session_val}, Target={'B' if target_val else 'A'}")
+        return ok
+    except Exception as e:
+        print(f"[YRM100 WARN] set_query_session failed: {e}")
+        return False
+
 def try_read_epc(ser, attempts=3):
     for _ in range(attempts):
         try:
+            # Clear any unconsumed frames from previous reads to prevent desync
+            if hasattr(ser, 'reset_input_buffer'):
+                ser.reset_input_buffer()
             ser.write(CMD_SINGLE)
         except Exception:
             return None
-        t_end = time.time() + 0.15
+        t_end = time.time() + 0.20
         while time.time() < t_end:
             fr = yrm_read_frame(ser, timeout_s=0.05)
             if not fr: continue
@@ -1167,7 +1465,10 @@ def try_read_epc(ser, attempts=3):
             if ftype == 0x02 and cmd == 0x22 and len(payload) >= 5:
                 epc_len = len(payload) - 5
                 if epc_len > 0:
-                    return payload[3:3+epc_len].hex().upper()
+                    epc_hex = payload[3:3+epc_len].hex().upper()
+                    # Drain the trailing command completion frame (0x01, 0x22)
+                    yrm_read_frame(ser, timeout_s=0.03)
+                    return epc_hex
             elif ftype == 0x01 and cmd == 0xFF and payload == b"\x15":
                 break
     return None
@@ -1430,6 +1731,12 @@ class RFIDReader:
             if self.ser is None or not self.ser.is_open:
                 self.ser = serial.Serial(self.port, self.baudrate, timeout=1, write_timeout=0.5)
                 print(f"[CONNECTED] to {self.port}")
+                try:
+                    pwr = float(getattr(Config, 'RFID_TX_POWER', 26.0))
+                    set_tx_power_dbm(self.ser, pwr)
+                    set_query_session(self.ser, session_val=0, target_val=0)
+                except Exception:
+                    pass
             return True
         except Exception as e:
             print(f"[ERROR] Failed to open {self.port}: {e}")
@@ -1550,9 +1857,19 @@ class RFIDReader:
                         print(f"[NEW TAG] {epc_ascii} at {timestamp}")
                     self.last_tag = epc_ascii
                     self.last_seen = now
-                if self.last_tag and (now - self.last_seen > Config.TAG_TIMEOUT):
-                    print(f"[TAG CLEARED] {self.last_tag}")
+                    self.missed_reads = 0
+                else:
+                    if self.last_tag:
+                        self.missed_reads = getattr(self, 'missed_reads', 0) + 1
+
+                # Debounced tag clearing: only clear when tag has been absent for longer than TAG_TIMEOUT
+                # AND missed multiple consecutive poll cycles, preventing accidental wipes during RF fades
+                timeout_s = float(getattr(Config, "TAG_TIMEOUT", 15))
+                if self.last_tag and (now - self.last_seen > timeout_s) and (getattr(self, 'missed_reads', 0) >= 5):
+                    print(f"[TAG CLEARED] {self.last_tag} (absent >{timeout_s}s)")
                     self._clear_current_data()
+                    self.missed_reads = 0
+
                 time.sleep(getattr(Config, "YRM100_GAP_S", 1.0))
             except Exception as e:
                 print("[ERROR] loop:", e)
@@ -1786,6 +2103,7 @@ class FPCReader:
                     set_tx_power_dbm(self.ser, target_pwr)
                     cur_pwr = get_tx_power_dbm(self.ser)
                     print(f"[FPC] TX Power set to {cur_pwr} dBm (target: {target_pwr} dBm)")
+                    set_query_session(self.ser, session_val=0, target_val=0)
                     get_query_params(self.ser)
                 except Exception as e:
                     print(f"[FPC] TX power init warning: {e}")
@@ -1837,16 +2155,17 @@ class FPCReader:
         self.running = False
 
     def _read_once_ascii(self):
-        epc_hex = try_read_epc(self.ser, attempts=2) if self.connect() else None
+        epc_hex = try_read_epc(self.ser, attempts=3) if self.connect() else None
         if not epc_hex:
             return None
         try:
             raw = bytes.fromhex(epc_hex)
-        except ValueError:
-            return None
-        raw = raw.split(b"\x00", 1)[0]
-        s = raw.decode("ascii", errors="ignore")
-        return "".join(c for c in s if 32 <= ord(c) <= 126).strip() or None
+            raw = raw.split(b"\x00", 1)[0]
+            s = raw.decode("ascii", errors="ignore")
+            clean = "".join(c for c in s if 32 <= ord(c) <= 126).strip()
+            return clean if clean else epc_hex
+        except Exception:
+            return epc_hex
 
     def _clear(self, reason=""):
         had_tag = bool(self.fpc_current)
@@ -1872,7 +2191,6 @@ class FPCReader:
 
     def _loop(self):
         print("[FPC] Sensor-Gated loop starting...")
-        gap = getattr(Config, "YRM100_GAP_S", 0.5)
         while self.running:
             try:
                 active = self.sensor.is_active()
@@ -1894,9 +2212,9 @@ class FPCReader:
                     else:
                         # still active; within window?
                         if now <= self.window_until:
-                            epc_ascii = self._read_once_ascii()
-                            if epc_ascii:
-                                if epc_ascii != self.fpc_current:
+                            if not self.fpc_current:
+                                epc_ascii = self._read_once_ascii()
+                                if epc_ascii:
                                     self.fpc_current = epc_ascii
                                     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                     self.current_data.update({"fpc_id": epc_ascii, "timestamp": ts})
@@ -1907,8 +2225,12 @@ class FPCReader:
                         else:
                             # window expired:
                             if not self.fpc_current:
-                                self._clear("window timeout (no read)")
-                                self.block_until_low = True
+                                is_simulator = getattr(self.sensor, '_simulate', False) or (self.sensor.mode == 'GPIO' and self.sensor.GPIO is None)
+                                if is_simulator:
+                                    self.window_until = now + float(getattr(Config, 'FPC_WINDOW_S', 10.0))
+                                else:
+                                    self._clear("window timeout (no read)")
+                                    self.block_until_low = True
                             else:
                                 if not self.window_committed and not self.window_just_closed:
                                     self.window_just_closed = True
@@ -1922,7 +2244,10 @@ class FPCReader:
                         if self.fpc_current:
                             self._clear("sensor LOW (idle)")
 
-                time.sleep(gap)
+                if active and not self.fpc_current:
+                    time.sleep(0.4)
+                else:
+                    time.sleep(0.5)
             except Exception as e:
                 print("[FPC] loop error:", e)
                 self.close()
@@ -2025,6 +2350,13 @@ class RFIDApp:
         self.start_time = datetime.now()
         self.app.secret_key = os.environ.get("APP_SECRET", "dev-secret-change-me")
         CORS(self.app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+
+        @self.app.after_request
+        def add_no_cache_headers(response):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
         self.rfid_reader = None
         self.header_reader = None   # reader #1 (HEADER)
         self.fpc_reader = None      # reader #2 (FPC)
@@ -2051,7 +2383,11 @@ class RFIDApp:
             "last_cleaning": None,
             "next_cleaning": None,
             "timestamp": None,
-            "stage": "IDLE"
+            "stage": "IDLE",
+            "not_found": False,
+            "mismatch_detected": False,
+            "mismatch_type": None,
+            "mismatch_message": None,
         }
         self._cassette_stage = "IDLE"          # IDLE -> LOADED -> IN_PROCESS -> STANDBY -> IDLE
         self._cassette_active_tag = None
@@ -2060,8 +2396,7 @@ class RFIDApp:
         # Start cassette state machine timer loop
         threading.Thread(target=self._cassette_timer_loop, daemon=True).start()
 
-        # Start both_logger_loop for FPC SensorGate + Header logging
-        threading.Thread(target=self._both_logger_loop, daemon=True).start()
+        # Note: both_logger_loop is started once in main() to prevent duplicate threads
 
         # --- [NEW] Mockup Mode variables initialization ---
         # These variables store the simulated states for FPC and Cassette during mockup demo
@@ -2101,6 +2436,13 @@ class RFIDApp:
     def _setup_routes(self):
         """Setup Flask routes"""
         
+        @self.app.after_request
+        def add_no_cache_headers(response):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
+
         # Static file routes
         @self.app.route('/')
         def index():
@@ -2241,24 +2583,57 @@ class RFIDApp:
                 self._cassette_simulated = False
                 for k in self._cassette_state:
                     self._cassette_state[k] = None
+                self._cassette_state["stage"] = "IDLE"
+                self._cassette_state["not_found"] = False
+                self._cassette_state["mismatch_detected"] = False
+                self._cassette_state["mismatch_type"] = None
+                self._cassette_state["mismatch_message"] = None
                 return jsonify({"status": "success", "message": "Cassette simulation cleared"})
             
             if tag:
                 self._cassette_simulated = True
                 details = DatabaseManager.get_cassette_details(tag)
                 if details:
+                    is_nf = bool(details.get('not_found', False))
                     self._cassette_state.update(details)
                     self._cassette_state['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    self._cassette_state['stage'] = "LOADED"
+                    self._cassette_state['not_found'] = is_nf
+                    self._cassette_state['mismatch_detected'] = is_nf
+                    self._cassette_state['mismatch_type'] = 'not_found' if is_nf else None
+                    self._cassette_state['mismatch_message'] = details.get('message') if is_nf else None
+                    self._cassette_state['status'] = "NOT_FOUND" if is_nf else "LOADED"
                     # Log it
                     DatabaseManager.store_cassette_log(
                         tag,
-                        details.get('machine_status'),
+                        "NOT_FOUND" if is_nf else details.get('machine_status'),
                         details.get('lot_id'),
                         details.get('batch_id'),
                         details.get('last_cleaning'),
                         details.get('next_cleaning'),
                         self._cassette_state['timestamp']
                     )
+                    # Backfill scan_log with lot_id/batch_id if recent log row has empty lot_id
+                    try:
+                        sim_lot = details.get('lot_id')
+                        sim_batch = details.get('batch_id')
+                        if sim_lot and sim_batch:
+                            conn_l = DatabaseManager.get_local_connection()
+                            cur_l = conn_l.cursor()
+                            cur_l.execute("""
+                                UPDATE scan_log
+                                SET lot_id = %s, batch_id = %s
+                                WHERE id = (
+                                    SELECT id FROM scan_log
+                                    WHERE (lot_id IS NULL OR lot_id = '' OR lot_id = '-')
+                                    ORDER BY id DESC
+                                    LIMIT 1
+                                )
+                            """, (sim_lot, sim_batch))
+                            conn_l.commit()
+                            conn_l.close()
+                    except Exception as e:
+                        print(f"[WARN] Backfill scan_log simulation error: {e}")
                     return jsonify({"status": "success", "message": f"Simulated scanning of cassette: {tag}", "data": self._cassette_state})
                 return jsonify({"status": "error", "message": "Tag details could not be resolved"}), 400
             
@@ -2277,6 +2652,22 @@ class RFIDApp:
             
             res = self._on_cassette_scan(tag)
             return jsonify(res)
+
+        @self.app.route('/api/cassette/clear', methods=['GET', 'POST'])
+        def api_cassette_clear():
+            self._cassette_simulated = False
+            self._cassette_stage = "IDLE"
+            self._cassette_active_tag = None
+            self._cassette_last_seen = 0
+            for k in self._cassette_state:
+                self._cassette_state[k] = None
+            self._cassette_state["stage"] = "IDLE"
+            self._cassette_state["not_found"] = False
+            self._cassette_state["mismatch_detected"] = False
+            self._cassette_state["mismatch_type"] = None
+            self._cassette_state["mismatch_message"] = None
+            print("[CASSETTE] State cleared to IDLE via API")
+            return jsonify({"status": "success", "message": "Cassette state cleared to IDLE"})
 
         # ============================================================================
         # SENSOR SIMULATION & CONTROL ENDPOINTS (API ควบคุมเซนเซอร์จำลอง FPC)
@@ -2629,6 +3020,38 @@ class RFIDApp:
             role = session.get("role", "user")
             logged_in = bool(session.get("employee_id"))
             return jsonify({"ok": True, "role": role, "loggedIn": logged_in})
+
+        # =====================================================================
+        # SMART STORE PROBE CARD MAPPINGS & SYNC ENDPOINTS
+        # =====================================================================
+        @self.app.route('/api/store/mappings', methods=['GET'])
+        def api_store_mappings():
+            """Fetch all Smart Store probe card mappings"""
+            data = DatabaseManager.get_all_probe_card_mappings()
+            return jsonify(data)
+
+        @self.app.route('/api/store/sync', methods=['POST'])
+        def api_store_sync():
+            """Synchronize Smart Store probe card records from MySQL to local SQLite cache"""
+            emp_id = session.get('employee_id', 'ADMIN')
+            data = DatabaseManager.sync_smart_store_probe_card(employee_id=emp_id)
+            return jsonify(data)
+
+        # =====================================================================
+        # SMART STORE CABINET (CASSETTE TAG) MAPPINGS & SYNC ENDPOINTS
+        # =====================================================================
+        @self.app.route('/api/cabinet/mappings', methods=['GET'])
+        def api_cabinet_mappings():
+            """Fetch all Smart Store cabinet (Cassette Tag) mappings"""
+            data = DatabaseManager.get_all_cabinet_mappings()
+            return jsonify(data)
+
+        @self.app.route('/api/cabinet/sync', methods=['POST'])
+        def api_cabinet_sync():
+            """Synchronize Smart Store cabinet (Cassette Tag) records from MySQL to local SQLite cache"""
+            emp_id = session.get('employee_id', 'ADMIN')
+            data = DatabaseManager.sync_smart_store_cabinet(employee_id=emp_id)
+            return jsonify(data)
 
 
 
@@ -3229,7 +3652,9 @@ class RFIDApp:
             'ฟ':'a','ห':'s','ก':'d','ด':'f','เ':'g','้':'h','่':'j','า':'k','ส':'l','ว':';','ง':'\'',
             'ผ':'z','ป':'x','แ':'c','อ':'v','ิ':'b','ื':'n','ท':'m','ม':',','ใ':'.','ฝ':'/',
             '๑':'@','๒':'#','๓':'$','๔':'%','๕':'&','๖':'_','๗':'+','๘':'*','๙':'(','๐':')',
-            'ๅ':'1','ภ':'4','ถ':'5','ุ':'6','ึ':'7','ค':'8','ต':'9','จ':'0','ข':'-','ช':'='
+            'ๅ':'1','/':'2','-':'3','ภ':'4','ถ':'5','ุ':'6','ึ':'7','ค':'8','ต':'9','จ':'0','ข':'-','ช':'=',
+            # Uppercase/shifted Kedmanee characters for A-F hex
+            'ฤ':'a','ฺ':'b','ฉ':'c','ฎ':'d','ฏ':'e','โ':'f'
         }
         return ''.join(thai_to_en.get(ch, ch) for ch in text).strip()
 
@@ -3269,26 +3694,60 @@ class RFIDApp:
         self._cassette_active_tag = tag
         self._cassette_stage = "LOADED"
         self._cassette_last_seen = now
+        
+        details = DatabaseManager.get_cassette_details(tag) or {}
+        is_nf = bool(details.get("not_found", False))
+        cass_id = details.get("cassette_id", tag)
+        lot_id = details.get("lot_id") or tag
+        batch_id = details.get("batch_id") or tag
+
         self._cassette_state.update({
-            "cassette_id": tag,
-            "machine_status": "Active",
-            "lot_id": tag,
-            "batch_id": tag,
-            "last_cleaning": None,
-            "next_cleaning": None,
+            "cassette_id": cass_id,
+            "machine_status": details.get("machine_status", "Active" if not is_nf else "Unmapped"),
+            "lot_id": lot_id,
+            "batch_id": batch_id,
+            "mapping_time": details.get("mapping_time"),
+            "last_cleaning": details.get("last_cleaning"),
+            "next_cleaning": details.get("next_cleaning"),
             "timestamp": timestamp,
-            "stage": "LOADED"
+            "stage": "LOADED",
+            "not_found": is_nf,
+            "mismatch_detected": is_nf,
+            "mismatch_type": "not_found" if is_nf else None,
+            "mismatch_message": details.get("message") if is_nf else None,
+            "status": "NOT_FOUND" if is_nf else "LOADED"
         })
-        print(f"[CASSETTE] Read Raw Tag: {tag}")
+        print(f"[CASSETTE] Read Tag: {tag} (DB status: {'NOT_FOUND' if is_nf else 'FOUND'}, Lot: {lot_id}, Batch: {batch_id})")
         DatabaseManager.store_cassette_log(
             tag,
-            "LOADED",
-            tag,
-            tag,
-            None,
-            None,
+            "NOT_FOUND" if is_nf else "LOADED",
+            lot_id or "-",
+            batch_id or "-",
+            details.get("last_cleaning"),
+            details.get("next_cleaning"),
             timestamp
         )
+
+        # Backfill the latest scan_log row if it was logged recently without lot_id/batch_id
+        try:
+            if lot_id and batch_id:
+                conn_local = DatabaseManager.get_local_connection()
+                cur_local = conn_local.cursor()
+                cur_local.execute("""
+                    UPDATE scan_log
+                    SET lot_id = %s, batch_id = %s
+                    WHERE id = (
+                        SELECT id FROM scan_log
+                        WHERE (lot_id IS NULL OR lot_id = '' OR lot_id = '-')
+                        ORDER BY id DESC
+                        LIMIT 1
+                    )
+                """, (lot_id, batch_id))
+                conn_local.commit()
+                conn_local.close()
+        except Exception as e:
+            print(f"[WARN] Failed to backfill scan_log with cassette lot/batch: {e}")
+
         return {"status": "success", "message": f"Cassette tag {tag} read", "data": self._cassette_state}
 
     def _cassette_timer_loop(self):
@@ -3320,6 +3779,10 @@ class RFIDApp:
                         for k in self._cassette_state:
                             self._cassette_state[k] = None
                         self._cassette_state["stage"] = "IDLE"
+                        self._cassette_state["not_found"] = False
+                        self._cassette_state["mismatch_detected"] = False
+                        self._cassette_state["mismatch_type"] = None
+                        self._cassette_state["mismatch_message"] = None
             except Exception as e:
                 print(f"[CASSETTE TIMER ERROR] {e}")
             time.sleep(1)
@@ -3434,8 +3897,11 @@ class RFIDApp:
                                 })
                                 print(f"[CONFIRM DATA ALERT] MISMATCH: {m_msg}")
 
-                            # Insert ONE immutable log into scan_log
+                            # Insert ONE immutable log into scan_log with Cassette Lot ID & Batch ID
                             try:
+                                current_batch_id = self._cassette_state.get('batch_id') or self._pair_state.get('batch_id')
+                                current_lot_id = self._cassette_state.get('lot_id') or self._pair_state.get('lot_id')
+
                                 DatabaseManager.store_scan_log(
                                     timestamp=ts_now,
                                     machine_no=getattr(Config, 'MACHINE_NO', '-'),
@@ -3443,14 +3909,14 @@ class RFIDApp:
                                     fpc_id=fpc_last_id,
                                     header_id=hdr_for_commit,
                                     header_name=None,
-                                    batch_id=None,
-                                    lot_id=None,
+                                    batch_id=current_batch_id,
+                                    lot_id=current_lot_id,
                                     source=src,
                                     touchdown=td_val,
                                     latest_pm=pm_val,
                                     comment=cm_val
                                 )
-                                print(f"[SCAN LOGGER] Log inserted ({src}): Header={hdr_for_commit}, FPC={fpc_last_id} @ {ts_now}")
+                                print(f"[SCAN LOGGER] Log inserted ({src}): Header={hdr_for_commit}, FPC={fpc_last_id}, Batch={current_batch_id}, Lot={current_lot_id} @ {ts_now}")
                             except Exception as e:
                                 print(f"[SCAN LOGGER] store_scan_log error: {e}")
 
@@ -3463,7 +3929,9 @@ class RFIDApp:
         """Get paginated logs from snapshot table (scan_log)."""
         try:
             page = int(request.args.get('page', 1))
-            offset = (page - 1) * Config.PAGE_SIZE
+            page_size = int(request.args.get('pageSize') or request.args.get('page_size') or Config.PAGE_SIZE)
+            page_size = min(max(1, page_size), 50000)
+            offset = (page - 1) * page_size
 
             conn = DatabaseManager.get_connection()
             cur = conn.cursor()
@@ -3471,7 +3939,7 @@ class RFIDApp:
             # Get total rows count
             cur.execute("SELECT COUNT(*) FROM scan_log")
             total = cur.fetchone()[0]
-            total_pages = (total + Config.PAGE_SIZE - 1) // Config.PAGE_SIZE
+            total_pages = (total + page_size - 1) // page_size if total > 0 else 1
 
             # Get paginated rows with immutable source & comment
             cur.execute("""
@@ -3479,7 +3947,7 @@ class RFIDApp:
                 FROM scan_log
                 ORDER BY timestamp DESC
                 LIMIT %s OFFSET %s
-            """, (Config.PAGE_SIZE, offset))
+            """, (page_size, offset))
             
             rows = cur.fetchall()
             conn.close()
@@ -3533,8 +4001,10 @@ class RFIDApp:
             agv_no = request.args.get('agv_no')
             date   = request.args.get('date')      # YYYY-MM-DD
             result_filter = (request.args.get('result_filter') or 'all').lower()
-            page   = int(request.args.get('page', 1))
-            offset = (page - 1) * Config.PAGE_SIZE
+            page = int(request.args.get('page', 1))
+            page_size = int(request.args.get('pageSize') or request.args.get('page_size') or Config.PAGE_SIZE)
+            page_size = min(max(1, page_size), 50000)
+            offset = (page - 1) * page_size
 
             filters, params = [], []
 
@@ -3580,7 +4050,7 @@ class RFIDApp:
 
             cur.execute(f"SELECT COUNT(*) FROM scan_log {where}", tuple(params))
             total = cur.fetchone()[0]
-            total_pages = (total + Config.PAGE_SIZE - 1) // Config.PAGE_SIZE if total > 0 else 1
+            total_pages = (total + page_size - 1) // page_size if total > 0 else 1
 
             cur.execute(f"""
                 SELECT id, fpc_id, header_id, header_name, timestamp, agv_no, machine_no, batch_id, lot_id, source, touchdown, comment
@@ -3588,7 +4058,7 @@ class RFIDApp:
                 {where}
                 ORDER BY timestamp DESC
                 LIMIT %s OFFSET %s
-            """, tuple(params + [Config.PAGE_SIZE, offset]))
+            """, tuple(params + [page_size, offset]))
             rows = cur.fetchall()
             conn.close()
 
@@ -3632,7 +4102,9 @@ class RFIDApp:
         """Get paginated logs from cassette_reader_log table."""
         try:
             page = int(request.args.get('page', 1))
-            offset = (page - 1) * Config.PAGE_SIZE
+            page_size = int(request.args.get('pageSize') or request.args.get('page_size') or Config.PAGE_SIZE)
+            page_size = min(max(1, page_size), 50000)
+            offset = (page - 1) * page_size
 
             # --- [NEW] Mockup Mode cassette logs retrieval ---
             # If MOCKUP_MODE is enabled, return simulated log entries instead of querying DB
@@ -3669,7 +4141,7 @@ class RFIDApp:
             # Get total rows count
             cur.execute("SELECT COUNT(*) FROM cassette_reader_log")
             total = cur.fetchone()[0]
-            total_pages = (total + Config.PAGE_SIZE - 1) // Config.PAGE_SIZE
+            total_pages = (total + page_size - 1) // page_size if total > 0 else 1
 
             # Get paginated rows
             cur.execute("""
@@ -3677,7 +4149,7 @@ class RFIDApp:
                 FROM cassette_reader_log
                 ORDER BY timestamp DESC
                 LIMIT %s OFFSET %s
-            """, (Config.PAGE_SIZE, offset))
+            """, (page_size, offset))
             
             rows = cur.fetchall()
             conn.close()
@@ -3786,7 +4258,10 @@ class RFIDApp:
 
             cur.execute(f"SELECT COUNT(*) FROM cassette_reader_log {where}", tuple(params))
             total = cur.fetchone()[0]
-            total_pages = (total + Config.PAGE_SIZE - 1) // Config.PAGE_SIZE
+            page_size = int(request.args.get('pageSize') or request.args.get('page_size') or Config.PAGE_SIZE)
+            page_size = min(max(1, page_size), 50000)
+            offset = (page - 1) * page_size
+            total_pages = (total + page_size - 1) // page_size if total > 0 else 1
 
             cur.execute(f"""
                 SELECT id, cassette_id, machine_status, lot_id, batch_id, last_cleaning, next_cleaning, timestamp, machine_no
@@ -3794,7 +4269,7 @@ class RFIDApp:
                 {where}
                 ORDER BY timestamp DESC
                 LIMIT %s OFFSET %s
-            """, tuple(params + [Config.PAGE_SIZE, offset]))
+            """, tuple(params + [page_size, offset]))
             rows = cur.fetchall()
             conn.close()
 

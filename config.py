@@ -61,7 +61,7 @@ class Config:
     READER_MODE = "HEADER"
     READER_TYPE = "OLD"
     YRM100_GAP_S = 1.0  # seconds between YRM polls
-    TAG_TIMEOUT = 8     # seconds to clear last tag
+    TAG_TIMEOUT = 15    # seconds to clear last tag (debounced/latched)
     READ_INTERVAL = 0.02
 
     # ——— Main server endpoint ———

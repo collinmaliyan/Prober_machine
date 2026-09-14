@@ -7,6 +7,8 @@ let refreshInterval;
 let currentPage = 1;
 let currentCassettePage = 1;
 let __lastReaderConnected = null;
+var params = new URLSearchParams({ page: '1', pageSize: '50000' });
+window.params = params;
 
 window.AppState = {
   readerConnected: false,
@@ -24,10 +26,11 @@ function emitStateChanged() {
 const INACTIVITY_TO_HOME_MS = 60_000; // 1 minute
 let inactivityHomeTimer = null;
 const ADMIN_IDS = ['ADMIN', 'admin']
+// --- [COMMENTED OUT] Remote AGV Polling (ปิดการส่งคำขอ HTTP ไปยังรถ AGV ทั้ง 3 คันชั่วคราว) ---
 const REMOTE_AGVS = [
-  { id: 'agv1', base: 'http://172.20.10.4:5001' }, // <-- change IP:port
-  { id: 'agv2', base: 'http://92.121.78.12:8000' }, // <-- change IP:port
-  { id: 'agv3', base: 'http://92.121.78.13:8000' }  // <-- change IP:port (Cassette AGV)
+  // { id: 'agv1', base: 'http://172.20.10.4:5001' }, // <-- change IP:port
+  // { id: 'agv2', base: 'http://92.121.78.12:8000' }, // <-- change IP:port
+  // { id: 'agv3', base: 'http://92.121.78.13:8000' }  // <-- change IP:port (Cassette AGV)
 ];
 const LAST_AGV_STATUS = {
   agv1: { connected: null, tagPresent: false, lastUpdated: 0 },
@@ -51,12 +54,15 @@ const USE_MAIN_FOR_LOGS = false; // Always use same-origin relative endpoints so
 
 let agvBgInFlight = false;
 function kickAgvBackground() {
+  // [COMMENTED OUT] ปิดการส่งคำขอพื้นหลังไปยังรถ AGV ชั่วคราว
+  /*
   if (agvBgInFlight) return;
   agvBgInFlight = true;
   Promise.resolve()
     .then(() => updateAgvFromRemote())
     .catch(() => { })
     .finally(() => { agvBgInFlight = false; });
+  */
 }
 
 function scheduleInactivityToHome() {
@@ -65,7 +71,7 @@ function scheduleInactivityToHome() {
   inactivityHomeTimer = setTimeout(() => {
     if (getActivePageId() !== 'home' && !document.hidden) {
       // click the existing nav handler so it highlights the correct button, etc.
-      const homeBtn = document.querySelector(".nav-button[onclick*=\"switchPage('home'\"");
+      const homeBtn = document.getElementById("nav-home-btn") || document.querySelector(".nav-button[onclick*=\"switchPage('home'\"");
       switchPage('home', homeBtn || undefined);
     }
   }, INACTIVITY_TO_HOME_MS);
@@ -76,14 +82,89 @@ function resetInactivityFromEvent() {
   if (getActivePageId() !== 'home') scheduleInactivityToHome();
 }
 
+// ============================================================================
+// HOME VIEW MODE CONTROLLER (Split 50/50, RFID Full, PMI Full)
+// ============================================================================
+let currentHomeViewMode = 'split'; // 'split' | 'rfid' | 'pmi'
+
+function handleHomeNavClick(btnEl) {
+  const activePage = getActivePageId();
+  if (activePage !== 'home') {
+    // Navigating to Home from another page
+    switchPage('home', btnEl);
+    closeHomeViewPopover();
+  } else {
+    // Already on Home -> Toggle the view mode popover
+    toggleHomeViewPopover();
+  }
+}
+
+function toggleHomeViewPopover() {
+  const popover = document.getElementById('home-view-popover');
+  const homeBtn = document.getElementById('nav-home-btn');
+  if (!popover) return;
+
+  const isOpen = popover.style.display !== 'none';
+  if (isOpen) {
+    closeHomeViewPopover();
+  } else {
+    popover.style.display = 'block';
+    if (homeBtn) homeBtn.classList.add('popover-active');
+  }
+}
+
+function closeHomeViewPopover() {
+  const popover = document.getElementById('home-view-popover');
+  const homeBtn = document.getElementById('nav-home-btn');
+  if (popover) popover.style.display = 'none';
+  if (homeBtn) homeBtn.classList.remove('popover-active');
+}
+
+function setHomeViewMode(mode) {
+  currentHomeViewMode = mode;
+  const contentBoxes = document.querySelector('#home .content-boxes');
+  if (!contentBoxes) return;
+
+  contentBoxes.classList.remove('view-split', 'view-rfid-full', 'view-pmi-full');
+  if (mode === 'rfid') {
+    contentBoxes.classList.add('view-rfid-full');
+  } else if (mode === 'pmi') {
+    contentBoxes.classList.add('view-pmi-full');
+  } else {
+    contentBoxes.classList.add('view-split');
+  }
+
+  // Update active state in popover buttons
+  document.querySelectorAll('.view-opt-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === mode);
+  });
+
+  closeHomeViewPopover();
+}
+
+// Global click listener to close popover when clicking outside
+document.addEventListener('click', function (e) {
+  const popover = document.getElementById('home-view-popover');
+  const homeBtn = document.getElementById('nav-home-btn');
+  if (popover && popover.style.display !== 'none') {
+    if (!popover.contains(e.target) && (!homeBtn || !homeBtn.contains(e.target))) {
+      closeHomeViewPopover();
+    }
+  }
+});
 
 // ============================================================================
 // MAIN NAVIGATION SYSTEM
 // ============================================================================
 function switchPage(pageId, btnEl) {
-  // Restore sidebar navigation for all non-settings pages
-  if (pageId !== 'setting') {
-    const navPanel = document.querySelector('.nav-panel');
+  // Always close Home view mode popover if switching page
+  closeHomeViewPopover();
+
+  // Hide sidebar navigation for settings page, restore for other pages
+  const navPanel = document.querySelector('.nav-panel');
+  if (pageId === 'setting' || pageId === 'settings') {
+    if (navPanel) navPanel.style.display = 'none';
+  } else {
     if (navPanel) navPanel.style.display = 'flex';
   }
 
@@ -309,6 +390,19 @@ function updateHomeFromLocal() {
         const tagPresent = !!(rfidData.fpc_id || rfidData.header_id || rfidData.header_name);
         const bothHave = !!(rfidData.header_id && rfidData.fpc_id);
 
+        // --- Cassette Data extraction ---
+        const cassetteData = data.cassette || {};
+        const isCassettePresent = !!(cassetteData.batch_id || cassetteData.lot_id || cassetteData.cassette_id);
+        const isCassetteNotFound = isCassettePresent && (
+          cassetteData.not_found === true ||
+          cassetteData.status === 'NOT_FOUND' ||
+          cassetteData.mismatch_type === 'not_found' ||
+          cassetteData.batch_id === 'NOT_IN_STORE' ||
+          (cassetteData.lot_id && String(cassetteData.lot_id).startsWith('UNMAPPED-'))
+        );
+        window.__isCassettePresent = isCassettePresent;
+        window.__isCassetteNotFound = isCassetteNotFound;
+
         const currentPairKey = `${rfidData.header_id || ''}|${rfidData.fpc_id || ''}`;
         if (currentPairKey !== window.__lastPairKey) {
           window.__lastPairKey = currentPairKey;
@@ -317,6 +411,7 @@ function updateHomeFromLocal() {
         }
 
         if (tagPresent) {
+          window.__missingTagCycles = 0;
           updateDisplayFields(rfidData);
 
           const isMismatch = (rfidData.mismatch_detected === true) || (bothHave && rfidData.match_ok === false);
@@ -354,7 +449,7 @@ function updateHomeFromLocal() {
             window.__pairWarnKey = null;
             const box = document.getElementById('info-box');
             const td = Number(rfidData?.touchdown ?? 0);
-            if (box && (!Number.isFinite(td) || td < TD_LIMIT) && !window.__pmModalOpen) {
+            if (box && (!Number.isFinite(td) || td < TD_LIMIT) && !window.__pmModalOpen && !isCassetteNotFound) {
               box.classList.remove('warning-active');
               if (bothHave && (rfidData.match_ok === true || rfidData.pair_ok === true)) {
                 if (td >= TD_PREWARN_MIN) {
@@ -370,21 +465,73 @@ function updateHomeFromLocal() {
         } else {
           window.__pairWarnKey = null;
           window.__pairModalDismissed = false;
-          clearAllDisplayFields();
+          // [DEBOUNCE / GRACE PERIOD] Require 3 consecutive missing cycles (~2.5-3s)
+          // before clearing all display fields to avoid flickering from transient RF dips
+          window.__missingTagCycles = (window.__missingTagCycles || 0) + 1;
+          if (window.__missingTagCycles >= 3) {
+            clearAllDisplayFields();
+          }
         }
 
         // --- Cassette Logic ---
-        const cassetteData = data.cassette || {};
-        const isCassettePresent = !!(cassetteData.batch_id || cassetteData.lot_id || cassetteData.cassette_id);
+        const currentCassKey = cassetteData.cassette_id || '';
+        if (currentCassKey !== window.__lastCassetteKey) {
+          window.__lastCassetteKey = currentCassKey;
+          window.__cassetteWarnKey = null;
+        }
 
-        // Show Cassette's raw tag on the main card fields
+        // Show Cassette's tag/lot/batch on the main card fields
         if (isCassettePresent) {
           const rawTag = cassetteData.cassette_id || cassetteData.lot_id || cassetteData.batch_id || '';
-          setMany(['batch-id-display'], rawTag);
-          setMany(['lot-id-display'], rawTag);
+          if (isCassetteNotFound) {
+            // Case 2: NOT FOUND -> Show scanned unmapped tag value in Batch ID and Lot ID fields, while keeping popup alert
+            setMany(['batch-id-display'], rawTag);
+            setMany(['lot-id-display'], rawTag);
+          } else {
+            // Case 1: FOUND -> Show matched Lot ID and Batch ID from table
+            setMany(['batch-id-display'], cassetteData.batch_id || '');
+            setMany(['lot-id-display'], cassetteData.lot_id || '');
+          }
+          if (typeof updateCassetteDisplayFields === 'function') {
+            updateCassetteDisplayFields(cassetteData);
+          }
         } else {
-          setMany(['batch-id-display'], '');
-          setMany(['lot-id-display'], '');
+          if (!tagPresent) {
+            setMany(['batch-id-display'], '');
+            setMany(['lot-id-display'], '');
+          }
+          if (typeof clearCassetteDisplayFields === 'function') {
+            clearCassetteDisplayFields();
+          }
+          window.__cassetteWarnKey = null;
+        }
+
+        // Trigger Pop-up Modal when Cassette is NOT FOUND in database
+        if (isCassetteNotFound) {
+          const cassId = cassetteData.cassette_id || 'Unknown';
+          const msg = cassetteData.mismatch_message || cassetteData.message || `Tag Cassette (${cassId}) ไม่พบข้อมูลในระบบ Smart Store หรือยังไม่ได้ทำ Data Mapping จากตู้ Store`;
+          const warnKey = `CASSETTE_NOT_FOUND|${cassId}`;
+
+          if (window.__cassetteWarnKey !== warnKey) {
+            window.__cassetteWarnKey = warnKey;
+            window.__pmDetailText = msg;
+            showPmWarning(msg, { type: 'not_found', tagType: 'cassette' });
+          }
+
+          const box = document.getElementById('info-box');
+          if (box) {
+            box.classList.add('warning-active');
+            box.classList.remove('tag-active');
+            _updateInfoBoxBadge(box, 'danger', 'NOT FOUND');
+          }
+        }
+
+        // Show/hide clear button footer on info-box (visible during warning / NOT FOUND state)
+        const boxEl = document.getElementById('info-box');
+        const clearFooter = document.getElementById('info-box-footer');
+        if (clearFooter) {
+          const isWarning = isCassetteNotFound || (boxEl && boxEl.classList.contains('warning-active'));
+          clearFooter.style.display = isWarning ? 'flex' : 'none';
         }
 
         const hasAnyTag = tagPresent || isCassettePresent;
@@ -443,8 +590,10 @@ window.__pmWarnKey = null;
 
 
 function clearAllDisplayFields() {
-  setMany(['batch-id-display'], '');
-  setMany(['lot-id-display'], '');
+  if (!window.__isCassettePresent) {
+    setMany(['batch-id-display'], '');
+    setMany(['lot-id-display'], '');
+  }
   setMany(['fpc-display'], '');
   setMany(['header-display'], '');
   setMany(['touchdown-value'], '');
@@ -454,14 +603,22 @@ function clearAllDisplayFields() {
   __lastPmWarnKey = null;
   clearPmWarningState();
   clearPmPrewarningState();
-  _updateInfoBoxBadge(document.getElementById('info-box'), 'none');
+  if (!window.__isCassetteNotFound) {
+    _updateInfoBoxBadge(document.getElementById('info-box'), 'none');
+  }
+  const clearFooter = document.getElementById('info-box-footer');
+  if (clearFooter && !window.__isCassetteNotFound) {
+    clearFooter.style.display = 'none';
+  }
   const pre = document.getElementById('td-prewarn');
   if (pre) { pre.style.display = 'none'; pre.textContent = ''; pre.classList.remove('hot'); }
 }
 
 function updateDisplayFields(rfidData) {
-  setMany(['batch-id-display'], rfidData.batch_id || '');
-  setMany(['lot-id-display'], rfidData.lot_id || '');
+  if (!window.__isCassettePresent) {
+    setMany(['batch-id-display'], rfidData.batch_id || '');
+    setMany(['lot-id-display'], rfidData.lot_id || '');
+  }
   setMany(['fpc-display'], rfidData.fpc_id || '');
   setMany(['header-display'], rfidData.header_id || '');
   setMany(['touchdown-value'], rfidData.touchdown ?? '');
@@ -765,6 +922,8 @@ function fetchWithTimeout(url, ms = 700) {
 
 // Poll all remote AGVs independently (no cross-blocking) and update cache
 async function updateAgvFromRemote() {
+  // --- [COMMENTED OUT] ปิดการส่งคำขอไปยังรถ AGV ทั้ง 3 คันชั่วคราว ---
+  return;
   // Safety: make sure REMOTE_AGVS exists
   if (!Array.isArray(REMOTE_AGVS) || REMOTE_AGVS.length === 0) return;
 
@@ -1151,72 +1310,91 @@ function updateLastUpdated() {
   document.getElementById('last-updated').textContent = timestamp;
 }
 
-// --- Shared Smart Pagination Builder ---
+// --- Shared Smart Pagination Builder (Compact Page [ 1 ] of X Style) ---
 function buildSmartPagination(container, current, totalPages, onPageClick) {
   if (!container) return;
   container.innerHTML = '';
-  if (totalPages <= 1) return;
+  if (!totalPages || totalPages < 1) totalPages = 1;
 
-  // Previous Page Button
-  const prevBtn = document.createElement('button');
-  prevBtn.textContent = '‹';
-  prevBtn.className = 'page-btn prev-next';
-  if (current === 1) prevBtn.disabled = true;
-  prevBtn.onclick = () => onPageClick(current - 1);
+  container.className = 'pagination-controls modern-pagination';
+
+  // Helper to create nav arrow buttons
+  function createNavBtn(symbol, targetPage, disabled, title) {
+    const btn = document.createElement('button');
+    btn.innerHTML = symbol;
+    btn.className = 'page-btn nav-btn';
+    btn.title = title || '';
+    if (disabled) {
+      btn.disabled = true;
+    } else {
+      btn.onclick = (e) => {
+        e.preventDefault();
+        onPageClick(targetPage);
+      };
+    }
+    return btn;
+  }
+
+  // 1. First Page Button («)
+  const firstBtn = createNavBtn('&laquo;', 1, current <= 1, 'First Page');
+  container.appendChild(firstBtn);
+
+  // 2. Previous Page Button (‹)
+  const prevBtn = createNavBtn('&lsaquo;', current - 1, current <= 1, 'Previous Page');
   container.appendChild(prevBtn);
 
-  // Helper to create page number button
-  function addPageBtn(i) {
-    const btn = document.createElement('button');
-    btn.textContent = i;
-    btn.className = 'page-btn';
-    if (i === current) btn.classList.add('active');
-    btn.onclick = () => onPageClick(i);
-    container.appendChild(btn);
-  }
+  // 3. Middle Capsule Container: Page [ current ] of totalPages
+  const middleCapsule = document.createElement('div');
+  middleCapsule.className = 'pagination-page-capsule';
 
-  // Helper to create ellipsis (...)
-  function addEllipsis() {
-    const span = document.createElement('span');
-    span.textContent = '...';
-    span.className = 'pagination-ellipsis';
-    span.style.padding = '0 6px';
-    span.style.color = '#666';
-    span.style.fontSize = '12px';
-    span.style.display = 'inline-block';
-    container.appendChild(span);
-  }
+  const labelPage = document.createElement('span');
+  labelPage.className = 'capsule-label-page';
+  labelPage.textContent = 'Page';
+  middleCapsule.appendChild(labelPage);
 
-  // Always show Page 1
-  addPageBtn(1);
+  // Page input badge
+  const pageInput = document.createElement('input');
+  pageInput.type = 'number';
+  pageInput.min = '1';
+  pageInput.max = String(totalPages);
+  pageInput.value = String(current);
+  pageInput.className = 'capsule-page-input';
+  pageInput.title = 'Type a page number and press Enter';
+  pageInput.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      let target = parseInt(pageInput.value, 10);
+      if (isNaN(target)) target = 1;
+      target = Math.max(1, Math.min(totalPages, target));
+      if (target !== current) {
+        onPageClick(target);
+      }
+    }
+  };
+  pageInput.onchange = () => {
+    let target = parseInt(pageInput.value, 10);
+    if (isNaN(target)) target = 1;
+    target = Math.max(1, Math.min(totalPages, target));
+    if (target !== current) {
+      onPageClick(target);
+    }
+  };
+  middleCapsule.appendChild(pageInput);
 
-  let start = Math.max(2, current - 1);
-  let end = Math.min(totalPages - 1, current + 1);
+  const labelTotal = document.createElement('span');
+  labelTotal.className = 'capsule-label-total';
+  labelTotal.textContent = `of ${totalPages}`;
+  middleCapsule.appendChild(labelTotal);
 
-  if (current > 3) {
-    addEllipsis();
-  }
+  container.appendChild(middleCapsule);
 
-  for (let i = start; i <= end; i++) {
-    addPageBtn(i);
-  }
-
-  if (current < totalPages - 2) {
-    addEllipsis();
-  }
-
-  // Always show Last Page if totalPages > 1
-  if (totalPages > 1) {
-    addPageBtn(totalPages);
-  }
-
-  // Next Page Button
-  const nextBtn = document.createElement('button');
-  nextBtn.textContent = '›';
-  nextBtn.className = 'page-btn prev-next';
-  if (current === totalPages) nextBtn.disabled = true;
-  nextBtn.onclick = () => onPageClick(current + 1);
+  // 4. Next Page Button (›)
+  const nextBtn = createNavBtn('&rsaquo;', current + 1, current >= totalPages, 'Next Page');
   container.appendChild(nextBtn);
+
+  // 5. Last Page Button (»)
+  const lastBtn = createNavBtn('&raquo;', totalPages, current >= totalPages, 'Last Page');
+  container.appendChild(lastBtn);
 }
 
 function renderPagination(current, totalPages) {
@@ -1228,9 +1406,37 @@ function renderPagination(current, totalPages) {
 }
 
 function exportCSV() {
-  // Grab a lot of rows in one go (adjust if needed)
+  const btn = document.querySelector('.search-section .export-btn') || event?.target;
+  const originalText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Exporting...';
+  }
+
+  // Construct query parameters for full dataset export
+  const params = new URLSearchParams({ page: '1', pageSize: '50000' });
+  const fpcSearch = document.getElementById('search-fpc')?.value.trim();
+  const dateSearch = document.getElementById('search-date')?.value.trim();
+  const lotSearch = document.getElementById('search-lot')?.value.trim();
+  const batchSearch = document.getElementById('search-batch')?.value.trim();
+  const machineSearch = document.getElementById('search-machine')?.value.trim();
+  const headerSearch = document.getElementById('search-header')?.value.trim();
+  const agvSearch = document.getElementById('search-agv')?.value.trim();
+  const resultSearch = document.getElementById('search-result')?.value;
+
+  if (fpcSearch) params.append('fpc_id', fpcSearch);
+  if (dateSearch) params.append('date', dateSearch);
+  if (lotSearch) params.append('lot_id', lotSearch);
+  if (batchSearch) params.append('batch_id', batchSearch);
+  if (machineSearch) params.append('machine_no', machineSearch);
+  if (headerSearch) params.append('header_id', headerSearch);
+  if (agvSearch) params.append('agv_no', agvSearch);
+  if (resultSearch && resultSearch !== 'all') params.append('result_filter', resultSearch);
+
+  const hasFilter = Array.from(params.keys()).some(k => k !== 'page' && k !== 'pageSize');
+  const endpoint = hasFilter ? 'api/search_logs' : 'api/logs';
   const base = USE_MAIN_FOR_LOGS ? MAIN_API : '';
-  const url = base ? `${base}api/logs?${params.toString()}` : `/api/logs?${params.toString()}`;
+  const url = base ? `${base}/${endpoint}?${params.toString()}` : `/${endpoint}?${params.toString()}`;
 
   fetch(url, { mode: USE_MAIN_FOR_LOGS ? 'cors' : 'same-origin' })
     .then(res => res.json())
@@ -1246,31 +1452,39 @@ function exportCSV() {
         return;
       }
 
-      // Columns to export (match your SELECT)
+      // Columns to export
       const headers = [
-        'id', 'batch_id', 'lot_id', 'fpc_id',
+        'id', 'lot_id', 'batch_id', 'fpc_id',
         'header_id', 'header_name', 'timestamp',
-        'agv_no', 'machine_no'
+        'agv_no', 'machine_no', 'result', 'touchdown', 'comment'
       ];
 
       const rows = [headers];
 
       logs.forEach(log => {
-        // We may only have logId (e.g. "LOG000123"), derive raw id if needed
         const rawId = (log.id != null)
           ? String(log.id)
           : (log.logId ? String(log.logId).replace(/^LOG0*/, '') : '');
 
+        const src = String(log.source || '').toUpperCase();
+        const resType = String(log.resultType || '').toLowerCase();
+        const isNotFound = (src === 'NOT_FOUND' || resType === 'not_found');
+        const isMismatch = !isNotFound && (Boolean(log.isMismatch) || src === 'MISMATCH' || resType === 'mismatch');
+        const resText = isNotFound ? 'Not Found' : (isMismatch ? 'Mismatch' : 'Match');
+
         rows.push([
           rawId,
-          log.batchId || '',
           log.lotId || '',
+          log.batchId || '',
           log.fpcId || '',
           log.headerId || '',
           log.headerName || '',
           log.timestamp || '',
           log.agvNo || '',
-          log.machineNo || ''
+          log.machineNo || '',
+          resText,
+          log.touchdown != null ? String(log.touchdown) : '',
+          log.comment || ''
         ]);
       });
 
@@ -1285,22 +1499,28 @@ function exportCSV() {
 
       // Excel-friendly BOM for UTF-8 (Thai text etc.)
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
+      const dlUrl = URL.createObjectURL(blob);
 
       const now = new Date();
-      const fname = `logs_${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.csv`;
+      const fname = `rfid_logs_${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.csv`;
 
       const a = document.createElement('a');
-      a.href = url;
+      a.href = dlUrl;
       a.download = fname;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(dlUrl);
     })
     .catch(err => {
-      console.error(err);
-      alert('Export failed');
+      console.error('Export CSV error:', err);
+      alert('Export failed: ' + err.message);
+    })
+    .finally(() => {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
     });
 }
 
@@ -1444,9 +1664,30 @@ function renderCassettePagination(current, totalPages) {
 }
 
 function exportCassetteCSV() {
-  const params = new URLSearchParams({ page: '1', pageSize: '10000' });
+  const btn = document.querySelector('#cassette-log .export-btn') || event?.target;
+  const originalText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Exporting...';
+  }
+
+  const params = new URLSearchParams({ page: '1', pageSize: '50000' });
+  const cassSearch = document.getElementById('cass-search-id')?.value.trim();
+  const lotSearch = document.getElementById('cass-search-lot')?.value.trim();
+  const batchSearch = document.getElementById('cass-search-batch')?.value.trim();
+  const machineSearch = document.getElementById('cass-search-machine')?.value.trim();
+  const dateSearch = document.getElementById('cass-search-date')?.value.trim();
+
+  if (cassSearch) params.append('cassette_id', cassSearch);
+  if (lotSearch) params.append('lot_id', lotSearch);
+  if (batchSearch) params.append('batch_id', batchSearch);
+  if (machineSearch) params.append('machine_no', machineSearch);
+  if (dateSearch) params.append('date', dateSearch);
+
+  const hasFilter = Array.from(params.keys()).some(k => k !== 'page' && k !== 'pageSize');
+  const endpoint = hasFilter ? 'api/cassette/search_logs' : 'api/cassette/logs';
   const base = USE_MAIN_FOR_LOGS ? MAIN_API : '';
-  const url = base ? `${base}api/cassette/logs?${params.toString()}` : `/api/cassette/logs?${params.toString()}`;
+  const url = base ? `${base}/${endpoint}?${params.toString()}` : `/${endpoint}?${params.toString()}`;
 
   fetch(url, { mode: USE_MAIN_FOR_LOGS ? 'cors' : 'same-origin' })
     .then(res => res.json())
@@ -1497,22 +1738,28 @@ function exportCassetteCSV() {
 
       // Excel-friendly BOM for UTF-8 (Thai text etc.)
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
+      const dlUrl = URL.createObjectURL(blob);
 
       const now = new Date();
       const fname = `cassette_logs_${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.csv`;
 
       const a = document.createElement('a');
-      a.href = url;
+      a.href = dlUrl;
       a.download = fname;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(dlUrl);
     })
     .catch(err => {
-      console.error(err);
-      alert('Export failed');
+      console.error('Export Cassette CSV error:', err);
+      alert('Export failed: ' + err.message);
+    })
+    .finally(() => {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
     });
 }
 
@@ -1547,9 +1794,9 @@ function showLoginOnly() {
   if (input) input.value = '';
   if (errorMessage) errorMessage.style.display = 'none';
 
-  // Restore sidebar menu bar
+  // Hide sidebar menu bar during Settings mode
   const navPanel = document.querySelector('.nav-panel');
-  if (navPanel) navPanel.style.display = 'flex';
+  if (navPanel) navPanel.style.display = 'none';
 
   // Force clean state each time
   localStorage.removeItem('role');
@@ -1573,6 +1820,13 @@ function showSettingsOnly() {
   const nameInput = document.getElementById('machine-name-input');
   if (mainTitle && nameInput) {
     nameInput.value = mainTitle.textContent.trim();
+  }
+
+  // Load Smart Store mappings based on active tab
+  if (typeof currentMappingsTab !== 'undefined' && currentMappingsTab === 'cassette') {
+    loadCabinetMappings();
+  } else {
+    loadStoreMappings();
   }
 }
 
@@ -1620,6 +1874,275 @@ function updateMachineName() {
       console.error("Error updating machine name:", err);
       alert("Error sending update command to server.");
     });
+}
+
+// ============================================================================
+// SMART STORE PROBE CARD MAPPINGS & SYNC
+// ============================================================================
+let allStoreMappings = [];
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function loadStoreMappings() {
+  const tbody = document.getElementById('mappings-table-body');
+  const countEl = document.getElementById('mappings-count');
+  const sourceEl = document.getElementById('mappings-source');
+
+  try {
+    const res = await fetch('/api/store/mappings');
+    const data = await res.json();
+    if (data.status === 'success' && Array.isArray(data.mappings)) {
+      allStoreMappings = data.mappings;
+      if (countEl) countEl.textContent = allStoreMappings.length;
+      if (sourceEl && data.source) sourceEl.textContent = `Source: ${data.source}`;
+      renderMappingsTable(allStoreMappings);
+    } else {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="mappings-empty">ไม่พบข้อมูลในตาราง</td></tr>';
+    }
+  } catch (err) {
+    console.error('Error loading store mappings:', err);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="mappings-empty">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>';
+  }
+}
+
+function renderMappingsTable(items) {
+  const tbody = document.getElementById('mappings-table-body');
+  if (!tbody) return;
+
+  if (!items || items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="mappings-empty">ไม่พบข้อมูลที่ตรงกับคำค้นหา</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = items.map(m => `
+    <tr>
+      <td class="mappings-fpc-id">${escapeHtml(m.fpc_id || '-')}</td>
+      <td>${escapeHtml(m.header_id || '-')}</td>
+      <td>${escapeHtml(String(m.touchdown ?? '-'))}</td>
+      <td>${escapeHtml(m.latest_pm || '-')}</td>
+      <td>${escapeHtml(m.timer || '-')}</td>
+      <td>${escapeHtml(m.comment || '-')}</td>
+    </tr>
+  `).join('');
+}
+
+function filterMappingsTable() {
+  const searchInput = document.getElementById('mappings-search-input');
+  const query = (searchInput?.value || '').toLowerCase().trim();
+  const countEl = document.getElementById('mappings-count');
+
+  if (!query) {
+    renderMappingsTable(allStoreMappings);
+    if (countEl) countEl.textContent = allStoreMappings.length;
+    return;
+  }
+
+  const filtered = allStoreMappings.filter(m => {
+    const fpc = (m.fpc_id || '').toLowerCase();
+    const hdr = (m.header_id || '').toLowerCase();
+    const cmt = (m.comment || '').toLowerCase();
+    const td = String(m.touchdown ?? '').toLowerCase();
+    const pm = (m.latest_pm || '').toLowerCase();
+    const tm = (m.timer || '').toLowerCase();
+    return fpc.includes(query) || hdr.includes(query) || cmt.includes(query) || td.includes(query) || pm.includes(query) || tm.includes(query);
+  });
+
+  renderMappingsTable(filtered);
+  if (countEl) countEl.textContent = filtered.length;
+}
+
+async function syncStoreMappings() {
+  const btn = document.getElementById('btn-sync-mappings');
+  const icon = btn?.querySelector('.sync-icon');
+  const textEl = document.getElementById('btn-sync-text');
+  const searchInput = document.getElementById('mappings-search-input');
+
+  if (btn) btn.disabled = true;
+  if (icon) icon.classList.add('spinning');
+  if (textEl) textEl.textContent = 'Syncing...';
+
+  try {
+    const res = await fetch('/api/store/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+
+    if (data.status === 'success' || data.status === 'warning') {
+      if (Array.isArray(data.mappings)) {
+        allStoreMappings = data.mappings;
+        const countEl = document.getElementById('mappings-count');
+        const sourceEl = document.getElementById('mappings-source');
+        if (countEl) countEl.textContent = allStoreMappings.length;
+        if (sourceEl && data.source) sourceEl.textContent = `Source: ${data.source}`;
+        if (searchInput) searchInput.value = '';
+        renderMappingsTable(allStoreMappings);
+      }
+      alert(data.message || 'ซิงค์ข้อมูล Smart Store สำเร็จ');
+    } else {
+      alert('การซิงค์ข้อมูลไม่สำเร็จ: ' + (data.message || 'ข้อผิดพลาดที่ไม่ทราบสาเหตุ'));
+    }
+  } catch (err) {
+    console.error('Sync mappings error:', err);
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อเพื่อซิงค์ข้อมูล: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.classList.remove('spinning');
+    if (textEl) textEl.textContent = 'Sync Now';
+  }
+}
+
+// ============================================================================
+// SMART STORE CABINET (CASSETTE TAG) MAPPINGS & SYNC
+// ============================================================================
+let allCabinetMappings = [];
+let currentMappingsTab = 'probecard';
+
+function switchMappingsTab(tabName) {
+  currentMappingsTab = tabName;
+  const btnProbe = document.getElementById('tab-btn-probecard');
+  const btnCassette = document.getElementById('tab-btn-cassette');
+  const viewProbe = document.getElementById('view-probecard-mappings');
+  const viewCassette = document.getElementById('view-cassette-mappings');
+
+  if (tabName === 'cassette') {
+    if (btnProbe) btnProbe.classList.remove('active');
+    if (btnCassette) btnCassette.classList.add('active');
+    if (viewProbe) {
+      viewProbe.classList.remove('active');
+      viewProbe.style.display = 'none';
+    }
+    if (viewCassette) {
+      viewCassette.classList.add('active');
+      viewCassette.style.display = 'block';
+    }
+    loadCabinetMappings();
+  } else {
+    if (btnCassette) btnCassette.classList.remove('active');
+    if (btnProbe) btnProbe.classList.add('active');
+    if (viewCassette) {
+      viewCassette.classList.remove('active');
+      viewCassette.style.display = 'none';
+    }
+    if (viewProbe) {
+      viewProbe.classList.add('active');
+      viewProbe.style.display = 'block';
+    }
+    loadStoreMappings();
+  }
+}
+
+async function loadCabinetMappings() {
+  const tbody = document.getElementById('cabinet-mappings-table-body');
+  const countEl = document.getElementById('cabinet-mappings-count');
+  const sourceEl = document.getElementById('cabinet-mappings-source');
+
+  try {
+    const res = await fetch('/api/cabinet/mappings');
+    const data = await res.json();
+    if (data.status === 'success' && Array.isArray(data.mappings)) {
+      allCabinetMappings = data.mappings;
+      if (countEl) countEl.textContent = allCabinetMappings.length;
+      if (sourceEl && data.source) sourceEl.textContent = `Source: ${data.source}`;
+      renderCabinetTable(allCabinetMappings);
+    } else {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="mappings-empty">ไม่พบข้อมูลในตาราง</td></tr>';
+    }
+  } catch (err) {
+    console.error('Error loading cabinet mappings:', err);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="mappings-empty">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>';
+  }
+}
+
+function renderCabinetTable(items) {
+  const tbody = document.getElementById('cabinet-mappings-table-body');
+  if (!tbody) return;
+
+  if (!items || items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="mappings-empty">ไม่พบข้อมูลที่ตรงกับคำค้นหา</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = items.map(m => `
+    <tr>
+      <td class="mappings-tag-id">${escapeHtml(m.tag_id || '-')}</td>
+      <td>${escapeHtml(m.lot_id || '-')}</td>
+      <td>${escapeHtml(m.batch_id || '-')}</td>
+      <td>${escapeHtml(m.mapping_time || '-')}</td>
+    </tr>
+  `).join('');
+}
+
+function filterCabinetTable() {
+  const searchInput = document.getElementById('cabinet-search-input');
+  const query = (searchInput?.value || '').toLowerCase().trim();
+  const countEl = document.getElementById('cabinet-mappings-count');
+
+  if (!query) {
+    renderCabinetTable(allCabinetMappings);
+    if (countEl) countEl.textContent = allCabinetMappings.length;
+    return;
+  }
+
+  const filtered = allCabinetMappings.filter(m => {
+    const tag = (m.tag_id || '').toLowerCase();
+    const lot = (m.lot_id || '').toLowerCase();
+    const batch = (m.batch_id || '').toLowerCase();
+    const tm = (m.mapping_time || '').toLowerCase();
+    return tag.includes(query) || lot.includes(query) || batch.includes(query) || tm.includes(query);
+  });
+
+  renderCabinetTable(filtered);
+  if (countEl) countEl.textContent = filtered.length;
+}
+
+async function syncCabinetMappings() {
+  const btn = document.getElementById('btn-sync-cabinet');
+  const icon = btn?.querySelector('.sync-icon');
+  const textEl = document.getElementById('btn-sync-cabinet-text');
+  const searchInput = document.getElementById('cabinet-search-input');
+
+  if (btn) btn.disabled = true;
+  if (icon) icon.classList.add('spinning');
+  if (textEl) textEl.textContent = 'Syncing...';
+
+  try {
+    const res = await fetch('/api/cabinet/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+
+    if (data.status === 'success' || data.status === 'warning') {
+      if (Array.isArray(data.mappings)) {
+        allCabinetMappings = data.mappings;
+        const countEl = document.getElementById('cabinet-mappings-count');
+        const sourceEl = document.getElementById('cabinet-mappings-source');
+        if (countEl) countEl.textContent = allCabinetMappings.length;
+        if (sourceEl && data.source) sourceEl.textContent = `Source: ${data.source}`;
+        if (searchInput) searchInput.value = '';
+        renderCabinetTable(allCabinetMappings);
+      }
+      alert(data.message || 'ซิงค์ข้อมูล Smart Store Cabinet สำเร็จ');
+    } else {
+      alert('การซิงค์ข้อมูลไม่สำเร็จ: ' + (data.message || 'ข้อผิดพลาดที่ไม่ทราบสาเหตุ'));
+    }
+  } catch (err) {
+    console.error('Sync cabinet mappings error:', err);
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อเพื่อซิงค์ข้อมูล: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.classList.remove('spinning');
+    if (textEl) textEl.textContent = 'Sync Now';
+  }
 }
 
 
@@ -1693,6 +2216,8 @@ function logAction(action) {
 
 
 function goBack() {
+  const navPanel = document.querySelector('.nav-panel');
+  if (navPanel) navPanel.style.display = 'flex';
   switchPage('home');
 }
 
@@ -1923,6 +2448,9 @@ async function syncAuthFromServer() {
 document.addEventListener('DOMContentLoaded', async () => {
   await syncAuthFromServer();
   applyRoleLock();
+  if (window.location.pathname.includes('/settings')) {
+    switchPage('setting');
+  }
 });
 
 // If you have tab/menu buttons, guard Settings navigation:
@@ -2196,7 +2724,11 @@ function _updateInfoBoxBadge(boxEl, type, text) {
     e.stopPropagation();
     if (type === 'danger' || type === 'warning') {
       const isMis = text && text.includes('MISMATCH');
-      showPmWarning(window.__pmDetailText || `${text} occurred. Please check configuration.`, { type: isMis ? 'mismatch' : 'touchdown', force: true });
+      const isNF = text && text.includes('NOT FOUND');
+      showPmWarning(window.__pmDetailText || `${text} occurred. Please check configuration.`, { 
+        type: isNF ? 'not_found' : (isMis ? 'mismatch' : 'touchdown'), 
+        force: true 
+      });
     }
   };
 
@@ -2243,10 +2775,17 @@ function showPmWarning(detailText, options = {}) {
     if (iconEl) iconEl.textContent = '🔍';
     if (titleEl) titleEl.textContent = 'Tag Not Registered in Database';
     if (textEl) {
-      textEl.innerHTML = `
-        <p>The scanned FPC or Header is <strong>NOT registered in the database</strong>.</p>
-        <p>Please perform Data Mapping from Smart Store or register the card before starting a new lot.</p>
-      `;
+      if (options.tagType === 'cassette' || (detailText && detailText.includes('Cassette'))) {
+        textEl.innerHTML = `
+          <p>The scanned Cassette is <strong>NOT registered in the database</strong>.</p>
+          <p>Please perform Data Mapping from Smart Store or register the tag before proceeding.</p>
+        `;
+      } else {
+        textEl.innerHTML = `
+          <p>The scanned FPC or Header is <strong>NOT registered in the database</strong>.</p>
+          <p>Please perform Data Mapping from Smart Store or register the card before starting a new lot.</p>
+        `;
+      }
     }
   } else if (isMismatch) {
     if (headerEl) headerEl.textContent = 'Mismatch Alert';
@@ -2552,406 +3091,82 @@ window.addEventListener('beforeunload', function () {
 });
 
 
-const VK_ID = 'vk';
-const layouts = {
-  alphaLower: [
-    ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-    ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-    ['Shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', '⌫'],
-    ['123', 'Space', 'Enter']
-  ],
-  alphaUpper: [
-    ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
-    ['Shift', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫'],
-    ['123', 'Space', 'Enter']
-  ],
-  numeric: [
-    ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-    ['-', '/', ';', ':', '(', ')', '@', '"', "'", '#'],
-    ['ABC', '.', '_', ',', '?', '!', '⌫'],
-    ['Space', 'Enter']
-  ]
-};
+// Virtual keyboard removed - using system/hardware keyboard on i.MX8
+window.VirtualKeyboard = { showFor: () => {}, hide: () => {} };
 
-let activeEl = null;
-let caps = false;
-let mode = 'alphaLower'; // 'alphaUpper' | 'numeric'
+// ============================================================================
+// CLEAR STATUS BUTTON HANDLER (เคลียร์ค่า & กลับสู่สถานะสีเทา)
+// ============================================================================
+function initClearStatusButton() {
+  const btn = document.getElementById('btn-clear-status');
+  if (!btn || btn.__bound) return;
+  btn.__bound = true;
 
-function ensureVK() {
-  let vk = document.getElementById(VK_ID);
-  if (vk) return vk;
+  btn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    console.log('[CLEAR STATUS] Operator clicked clear button -> Resetting to gray state');
 
-  vk = document.createElement('div');
-  vk.id = VK_ID;
-  vk.innerHTML = `
-      <div class="vk-topbar">
-        <div>On-Screen Keyboard</div>
-        <button class="vk-close" aria-label="Close" title="Close">✕</button>
-      </div>
-      <div class="vk-rows"></div>
-    `;
-  document.body.appendChild(vk);
-  vk.querySelector('.vk-close').addEventListener('click', hide);
-  build();
-  return vk;
-}
+    // 1. Tell backend to clear cassette state & simulation to IDLE
+    try {
+      await fetch('/api/cassette/clear', { method: 'POST' });
+    } catch (err) {
+      try { await fetch('/api/simulate_cassette?clear=true'); } catch (e) {}
+    }
 
-function build() {
-  const vk = document.getElementById(VK_ID);
-  const rows = vk.querySelector('.vk-rows');
-  rows.innerHTML = '';
-  const layout = layouts[mode];
+    // 2. Reset frontend cassette & pair flags
+    window.__isCassettePresent = false;
+    window.__isCassetteNotFound = false;
+    window.__cassetteWarnKey = null;
+    window.__lastCassetteKey = null;
+    window.__pairWarnKey = null;
+    window.__pairModalDismissed = true;
+    window.__missingTagCycles = 3;
 
-  layout.forEach((row, idx) => {
-    const r = document.createElement('div');
-    r.className = 'vk-row';
-    row.forEach(key => {
-      const btn = document.createElement('button');
-      btn.className = 'vk-key';
-      btn.textContent = key;
+    // 3. Clear all display fields immediately
+    setMany(['batch-id-display'], '');
+    setMany(['lot-id-display'], '');
+    setMany(['fpc-display'], '');
+    setMany(['header-display'], '');
+    setMany(['touchdown-value'], '');
+    setMany(['PM-display'], '');
+    setMany(['timer-display'], '');
+    setMany(['comment-display'], '');
+    if (typeof clearCassetteDisplayFields === 'function') {
+      clearCassetteDisplayFields();
+    }
 
-      // sizing helpers
-      if (key === 'Space') btn.classList.add('vk-space');
-      if (['Enter', 'Shift', '⌫', 'ABC', '123'].includes(key)) btn.classList.add('vk-func', 'vk-wide');
-      if (key === 'Space') btn.classList.add('vk-xwide');
+    // 4. Return info-box to gray state (remove warning-active and tag-active)
+    const box = document.getElementById('info-box');
+    if (box) {
+      box.classList.remove('warning-active');
+      box.classList.remove('tag-active');
+      _updateInfoBoxBadge(box, 'none');
+    }
 
-      btn.addEventListener('click', () => press(key));
-      r.appendChild(btn);
-    });
-    rows.appendChild(r);
+    // 5. Hide the clear button itself
+    const clearFooter = document.getElementById('info-box-footer');
+    if (clearFooter) {
+      clearFooter.style.display = 'none';
+    }
+
+    // 6. Close PM warning modal if open
+    hidePmWarning();
+
+    // 7. Immediate sync with backend
+    updateHomeFromLocal();
   });
 }
 
-function showFor(el) {
-  activeEl = el;
-  const vk = ensureVK();
-  vk.classList.add('visible');
-
-  // keep input visible above keyboard
-  if (typeof el.scrollIntoView === 'function') {
-    setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 10);
-  }
+// Initialize on script load and DOMContentLoaded
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initClearStatusButton);
+} else {
+  initClearStatusButton();
 }
-
-function hide() {
-  const vk = document.getElementById(VK_ID);
-  if (vk) vk.classList.remove('visible');
-  activeEl = null;
-}
-
-function setMode(m) { mode = m; build(); }
-function toggleShift() {
-  caps = !caps;
-  setMode(caps ? 'alphaUpper' : 'alphaLower');
-}
-
-function press(key) {
-  if (!activeEl) return;
-
-  switch (key) {
-    case '⌫': return backspace(activeEl);
-    case 'Enter':
-      if (activeEl.tagName === 'TEXTAREA') {
-        insert(activeEl, '\n');
-      } else {
-        // submit form if available
-        const form = activeEl.form;
-        if (form) form.requestSubmit ? form.requestSubmit() : form.submit();
-      }
-      return;
-    case 'Space': return insert(activeEl, ' ');
-    case 'Shift': return toggleShift();
-    case '123': return setMode('numeric');
-    case 'ABC': return setMode(caps ? 'alphaUpper' : 'alphaLower');
-    default:
-      insert(activeEl, key);
-      if (caps && mode !== 'numeric') toggleShift(); // auto unshift
-  }
-}
-
-function insert(el, text) {
-  try {
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? el.value.length;
-    const val = el.value ?? '';
-    el.value = val.slice(0, start) + text + val.slice(end);
-    const pos = start + text.length;
-    if (el.setSelectionRange) el.setSelectionRange(pos, pos);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  } catch {
-    // e.g., type="number" may not allow selection — fallback to append
-    el.value = (el.value ?? '') + text;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-  el.focus();
-}
-
-function backspace(el) {
-  try {
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? el.value.length;
-    const val = el.value ?? '';
-    if (start !== end) {
-      el.value = val.slice(0, start) + val.slice(end);
-      if (el.setSelectionRange) el.setSelectionRange(start, start);
-    } else if (start > 0) {
-      el.value = val.slice(0, start - 1) + val.slice(end);
-      const pos = start - 1;
-      if (el.setSelectionRange) el.setSelectionRange(pos, pos);
-    }
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  } catch {
-    el.value = (el.value ?? '').slice(0, -1);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-  el.focus();
-}
-
-// Show on focus for inputs/textarea
-const focusSelector = 'input[type="text"],input[type="search"],input[type="password"],input[type="number"],textarea';
-document.addEventListener('focusin', (e) => {
-  if (e.target.matches(focusSelector)) showFor(e.target);
-});
-// Optional: hide when tapping outside (except when tapping keys)
-document.addEventListener('pointerdown', (e) => {
-  const vk = document.getElementById(VK_ID);
-  if (!vk || !vk.classList.contains('visible')) return;
-  if (e.target.closest('#vk') || e.target.matches(focusSelector)) return;
-  hide();
-});
-
-
-//KEYBOARD//
-
-/* === On-screen keyboard — single source of truth === */
-/* === Virtual keyboard (no auto-scroll) — hardened close paths === */
-/* === Virtual keyboard (no auto-scroll) — no preview, no resize button === */
-(() => {
-  const VK_ID = 'vk';
-  const focusSelector =
-    'input:not([type]), input[type="text"], input[type="search"], ' +
-    'input[type="password"], input[type="number"], input[type="date"], textarea';
-
-  let activeEl = null;
-  let caps = false;
-  let mode = 'alphaLower';
-
-  const layouts = {
-    alphaLower: [
-      ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-      ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-      ['Shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', '⌫'],
-      ['123', 'Space', 'Enter']
-    ],
-    alphaUpper: [
-      ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-      ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
-      ['Shift', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫'],
-      ['123', 'Space', 'Enter']
-    ],
-    numeric: [
-      ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-      ['-', '/', ';', ':', '(', ')', '@', '"', "'", '#'],
-      ['ABC', '.', '_', ',', '?', '!', '⌫'],
-      ['Space', 'Enter']
-    ]
-  };
-
-  function ensureVK() {
-    let vk = document.getElementById(VK_ID);
-    if (vk) return vk;
-
-    vk = document.createElement('div');
-    vk.id = VK_ID;
-    vk.innerHTML = `
-      <div class="vk-topbar">
-        <div class="vk-title">Typing in: <span id="vk-field">—</span></div>
-        <div class="vk-actions">
-          <button class="vk-btn" data-vk-close aria-label="Close" title="Close">✕</button>
-        </div>
-      </div>
-      <div class="vk-rows"></div>
-    `;
-    document.body.appendChild(vk);
-
-    // close button (no resize button anymore)
-    vk.addEventListener('click', (e) => {
-      if (e.target.closest('[data-vk-close]')) {
-        e.preventDefault(); e.stopPropagation();
-        hide();
-      }
-    });
-
-    build();
-    return vk;
-  }
-
-  function setFieldLabel(el) {
-    const name =
-      el.getAttribute('aria-label') || el.placeholder || el.name || el.id ||
-      el.dataset.label || el.type || 'input';
-    const span = document.getElementById('vk-field');
-    if (span) span.textContent = name;
-  }
-
-  function build() {
-    const vk = ensureVK();
-    const rows = vk.querySelector('.vk-rows');
-    rows.innerHTML = '';
-    const layout = layouts[mode];
-    layout.forEach(row => {
-      const r = document.createElement('div');
-      r.className = 'vk-row';
-      row.forEach(key => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'vk-key';
-        btn.textContent = key;
-        if (key === 'Space') btn.classList.add('vk-space', 'vk-xwide');
-        if (['Enter', 'Shift', '⌫', 'ABC', '123'].includes(key)) btn.classList.add('vk-func', 'vk-wide');
-        btn.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); press(key); });
-        r.appendChild(btn);
-      });
-      rows.appendChild(r);
-    });
-  }
-
-  function setHeightVar() {
-    const vk = document.getElementById(VK_ID);
-    const h = (vk && vk.classList.contains('visible')) ? (vk.getBoundingClientRect().height || 0) : 0;
-    document.body.style.setProperty('--vk-height', `${h}px`);
-  }
-
-  function showFor(el) {
-    activeEl = el;
-
-    const vk = ensureVK();
-    vk.style.display = 'block';
-    vk.classList.add('visible');
-    document.body.classList.add('vk-open');
-
-    setFieldLabel(el);
-
-    const t = (el.getAttribute('type') || '').toLowerCase();
-    const numericish = t === 'number' || t === 'date' || el.inputMode === 'numeric' || el.hasAttribute('data-vk-numeric');
-    mode = numericish ? 'numeric' : (caps ? 'alphaUpper' : 'alphaLower');
-    build();
-
-    setHeightVar();
-
-    try { el.focus({ preventScroll: true }); } catch { el.focus(); }
-  }
-
-  function hide() {
-    const vk = document.getElementById(VK_ID);
-    if (vk) {
-      vk.classList.remove('visible');
-      vk.style.display = 'none';
-    }
-    document.body.classList.remove('vk-open');
-    document.body.style.setProperty('--vk-height', '0px');
-
-    if (activeEl) {
-      try { activeEl.blur(); } catch { }
-    }
-    activeEl = null;
-  }
-
-  function setMode(m) { mode = m; build(); }
-  function toggleShift() { caps = !caps; setMode(caps ? 'alphaUpper' : 'alphaLower'); }
-
-  function insert(el, text) {
-    try {
-      const start = el.selectionStart ?? el.value.length;
-      const end = el.selectionEnd ?? el.value.length;
-      const val = el.value ?? '';
-      el.value = val.slice(0, start) + text + val.slice(end);
-      const pos = start + text.length;
-      if (el.setSelectionRange) el.setSelectionRange(pos, pos);
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    } catch {
-      el.value = (el.value ?? '') + text;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    el.focus();
-  }
-
-  function backspace(el) {
-    try {
-      const start = el.selectionStart ?? el.value.length;
-      const end = el.selectionEnd ?? el.value.length;
-      const val = el.value ?? '';
-      if (start !== end) {
-        el.value = val.slice(0, start) + val.slice(end);
-        if (el.setSelectionRange) el.setSelectionRange(start, start);
-      } else if (start > 0) {
-        el.value = val.slice(0, start - 1) + val.slice(end);
-        const pos = start - 1;
-        if (el.setSelectionRange) el.setSelectionRange(pos, pos);
-      }
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    } catch {
-      el.value = (el.value ?? '').slice(0, -1);
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    el.focus();
-  }
-
-  function press(key) {
-    if (!activeEl) return;
-    switch (key) {
-      case '⌫': return backspace(activeEl);
-      case 'Enter':
-        if (activeEl.tagName === 'TEXTAREA') {
-          insert(activeEl, '\n');
-        } else {
-          const form = activeEl.form;
-          if (form) form.requestSubmit ? form.requestSubmit() : form.submit();
-        }
-        return;
-      case 'Space': return insert(activeEl, ' ');
-      case 'Shift': return toggleShift();
-      case '123': return setMode('numeric');
-      case 'ABC': return setMode(caps ? 'alphaUpper' : 'alphaLower');
-      default:
-        insert(activeEl, key);
-        if (caps && mode !== 'numeric') toggleShift(); // auto unshift
-    }
-  }
-
-  // OPEN on focus
-  document.addEventListener('focusin', (e) => {
-    if (e.target.matches(focusSelector)) showFor(e.target);
-  }, { capture: true });
-
-  // CLOSE on outside tap/click
-  function outsideClose(e) {
-    const vk = document.getElementById(VK_ID);
-    if (!vk || !vk.classList.contains('visible')) return;
-
-    const insideKeyboard = e.target.closest && e.target.closest('#' + VK_ID);
-    const isActiveField =
-      activeEl && (e.target === activeEl ||
-        (e.target.closest && e.target.closest('input,textarea') === activeEl));
-
-    if (!insideKeyboard && !isActiveField) hide();
-  }
-  ['pointerdown', 'mousedown', 'touchstart'].forEach(ev =>
-    document.addEventListener(ev, outsideClose, { capture: true })
-  );
-
-  // CLOSE on Esc
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') hide();
-  }, { capture: true });
-
-  // Optional: expose for debugging
-  window.VirtualKeyboard = { showFor, hide };
-})();
 
 // --- Patch #1: run once on load ---
 document.addEventListener('DOMContentLoaded', () => {
+  initClearStatusButton();
   updateHomeFromLocal();
 });
 
@@ -3663,9 +3878,10 @@ window.addEventListener('keydown', (e) => {
     // Auto-detect 16-char hex UID (e.g. cdde6b48080104e0) even if no Enter key
     __rfidTimer = setTimeout(() => {
       const scanned = __rfidBuffer.trim();
-      if (scanned.length >= 12 && /^[a-fA-F0-9]+$/.test(scanned)) {
-        console.log('[CASSETTE RFID AUTO-DETECTED]:', scanned);
-        sendCassetteScan(scanned);
+      const converted = convertThaiKedmaneeToEn(scanned);
+      if (converted.length >= 12 && /^[a-fA-F0-9]+$/.test(converted)) {
+        console.log('[CASSETTE RFID AUTO-DETECTED]:', converted);
+        sendCassetteScan(converted);
         __rfidBuffer = '';
       }
     }, 60);
@@ -3677,7 +3893,8 @@ const THAI_TO_EN_MAP = {
   'ฟ': 'a', 'ห': 's', 'ก': 'd', 'ด': 'f', 'เ': 'g', '้': 'h', '่': 'j', 'า': 'k', 'ส': 'l', 'ว': ';', 'ง': '\'',
   'ผ': 'z', 'ป': 'x', 'แ': 'c', 'อ': 'v', 'ิ': 'b', 'ื': 'n', 'ท': 'm', 'ม': ',', 'ใ': '.', 'ฝ': '/',
   '๑': '@', '๒': '#', '๓': '$', '๔': '%', '๕': '&', '๖': '_', '๗': '+', '๘': '*', '๙': '(', '๐': ')',
-  'ๅ': '1', 'ภ': '4', 'ถ': '5', 'ุ': '6', 'ึ': '7', 'ค': '8', 'ต': '9', 'จ': '0', 'ข': '-', 'ช': '='
+  'ๅ': '1', '/': '2', '-': '3', 'ภ': '4', 'ถ': '5', 'ุ': '6', 'ึ': '7', 'ค': '8', 'ต': '9', 'จ': '0', 'ข': '-', 'ช': '=',
+  'ฤ': 'a', 'ฺ': 'b', 'ฉ': 'c', 'ฎ': 'd', 'ฏ': 'e', 'โ': 'f'
 };
 
 function convertThaiKedmaneeToEn(str) {
@@ -3696,8 +3913,8 @@ function sendCassetteScan(tagId) {
     .then(res => {
       console.log('[CASSETTE SCAN RESPONSE]:', res);
       // Refresh current data immediately to show on Home
-      if (typeof fetchCurrentData === 'function') {
-        fetchCurrentData();
+      if (typeof updateHomeFromLocal === 'function') {
+        updateHomeFromLocal();
       }
     })
     .catch(err => console.error('[CASSETTE SCAN ERROR]:', err));

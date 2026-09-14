@@ -5,12 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RFID Prober GUI</title>
-    <link rel="stylesheet" href="styles.css?v=5">
+    <link rel="stylesheet" href="styles.css?v=20260912_view_mode_v9">
 </head>
 
 <body>
-    <div class="top-gradient-bar"></div>
     <div class="container">
+        <div class="top-gradient-bar"></div>
         <!-- Left Navigation Panel -->
         <div class="nav-panel">
             <div class="logo">
@@ -32,12 +32,13 @@
 
             <!-- --- [NEW] Modern Minimalist Nav Buttons with Inline SVG Icons --- -->
             <div class="nav-buttons">
-                <button class="nav-button active" onclick="switchPage('home', this)">
+                <button class="nav-button active" id="nav-home-btn" onclick="handleHomeNavClick(this)">
                     <svg viewBox="0 0 24 24">
                         <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
                         <polyline points="9 22 9 12 15 12 15 22" />
                     </svg>
                     <span>Home</span>
+                    <span class="nav-home-chevron" id="nav-home-chevron" title="คลิกเพื่อเลือกมุมมองหน้า Home">▼</span>
                 </button>
                 <!-- --- [COMMENTED OUT] Old generic icons --- -->
                 <!--
@@ -119,6 +120,40 @@
             </div>
         </div>
 
+        <!-- Home View Mode Dropdown Popover -->
+        <div id="home-view-popover" class="home-view-popover" style="display: none;">
+            <div class="popover-arrow"></div>
+            <div class="popover-header">
+                <span>เลือกมุมมองหน้า Home</span>
+            </div>
+            <div class="popover-options">
+                <button type="button" class="view-opt-btn active" data-view="split" onclick="setHomeViewMode('split')">
+                    <span class="view-opt-icon">◫</span>
+                    <div class="view-opt-text">
+                        <span class="view-opt-title">มุมมองแบ่งครึ่ง (Split 50/50)</span>
+                        <span class="view-opt-desc">แสดงทั้ง RFID และ PMI คู่กัน</span>
+                    </div>
+                    <span class="view-opt-check">✓</span>
+                </button>
+                <button type="button" class="view-opt-btn" data-view="rfid" onclick="setHomeViewMode('rfid')">
+                    <span class="view-opt-icon">◧</span>
+                    <div class="view-opt-text">
+                        <span class="view-opt-title">เฉพาะ RFID (Full Screen)</span>
+                        <span class="view-opt-desc">ขยายข้อมูล Reader และ WT-Lot Info</span>
+                    </div>
+                    <span class="view-opt-check">✓</span>
+                </button>
+                <button type="button" class="view-opt-btn" data-view="pmi" onclick="setHomeViewMode('pmi')">
+                    <span class="view-opt-icon">◨</span>
+                    <div class="view-opt-text">
+                        <span class="view-opt-title">เฉพาะ PMI (Full Screen)</span>
+                        <span class="view-opt-desc">ขยายภาพกล้อง RAW & PROCESSED เต็มจอ</span>
+                    </div>
+                    <span class="view-opt-check">✓</span>
+                </button>
+            </div>
+        </div>
+
         <!-- Main Content Area -->
         <div class="main-content">
             <!-- Global DateTime Display - shown on all pages -->
@@ -177,7 +212,9 @@
                                     <div class="status-column">
                                         <span class="status-label">Sensor</span>
                                         <span class="status-value">
-                                            <span class="sensor-value off" id="rfid-fpc-sensor-status" onclick="toggleSensorSimulator()" title="Click to toggle Sensor ON/OFF">OFF</span>
+                                            <span class="sensor-value off" id="rfid-fpc-sensor-status"
+                                                onclick="toggleSensorSimulator()"
+                                                title="Click to toggle Sensor ON/OFF">OFF</span>
                                         </span>
                                     </div>
                                 </div>
@@ -250,10 +287,18 @@
                                     id="timer-display">[RFID data will populate here]</span>
                             </div>
                             END OF Timer DISPLAY FIELD (Timer section) -->
-                            <div class="form-group">
+                            <div class="form-group" id="fg-comment">
                                 <label for="comment">Comment:</label>
                                 <span class="display-field"
                                     id="comment-display"><!-- RFID data will populate here --></span>
+                            </div>
+
+                            <!-- Clear status button at bottom-right of info-box -->
+                            <div class="info-box-footer" id="info-box-footer" style="display: none;">
+                                <button type="button" class="btn-clear-status" id="btn-clear-status"
+                                    title="เคลียร์ค่าและกลับสู่สถานะสีเทา">
+                                    <span class="clear-icon">✕</span> เคลียร์ค่า
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -282,8 +327,8 @@
                                     <div class="pmi-outer-frame">
                                         <div class="pmi-inner-frame">
                                             <!-- Camera image element for raw viewport -->
-                                            <img src="/pmi_inspection.png" class="pmi-camera-image"
-                                                id="pmi-raw-img" style="display: none;">
+                                            <img src="/pmi_inspection.png" class="pmi-camera-image" id="pmi-raw-img"
+                                                style="display: none;">
 
                                             <!-- Under-construction fallback indicator -->
                                             <div class="pmi-under-construction" id="pmi-raw-construct">
@@ -300,8 +345,8 @@
                                     <div class="pmi-outer-frame">
                                         <div class="pmi-inner-frame">
                                             <!-- Image element for processed viewport -->
-                                            <img src="/pmi_inspection.png" class="pmi-camera-image" id="pmi-processed-img"
-                                                style="display: none;">
+                                            <img src="/pmi_inspection.png" class="pmi-camera-image"
+                                                id="pmi-processed-img" style="display: none;">
                                             <div class="pmi-highlight-overlay"></div>
 
                                             <!-- Under-construction fallback indicator -->
@@ -320,8 +365,10 @@
 
                             <!-- Fail Review Navigation (Shows when batch finishes with defects) -->
                             <div class="pmi-fail-nav" id="pmi-fail-nav" style="display: none;">
-                                <button type="button" class="pmi-nav-btn" id="pmi-prev-btn" title="Previous Defect (←)">◀</button>
-                                <button type="button" class="pmi-nav-btn" id="pmi-next-btn" title="Next Defect (→)">▶</button>
+                                <button type="button" class="pmi-nav-btn" id="pmi-prev-btn"
+                                    title="Previous Defect (←)">◀</button>
+                                <button type="button" class="pmi-nav-btn" id="pmi-next-btn"
+                                    title="Next Defect (→)">▶</button>
                             </div>
 
                             <!-- 4. PMI Parsed Data Fields Grid:
@@ -792,12 +839,170 @@
                             </div>
                         </div>
 
-                        <div style="text-align:center; margin-top: 20px;">
-                            <button class="btn btn-primary" onclick="openSettingsLog()">Settings Log</button>
+                        <!-- ========================================================= -->
+                        <!-- --- [NEW] Current Mappings & Status (Smart Store Table) --- -->
+                        <!-- ========================================================= -->
+                        <div class="mappings-card">
+                            <!-- Tab Switcher (Probe Card Tag vs Cassette Tag) -->
+                            <div class="mappings-tabs-container">
+                                <div class="mappings-tabs">
+                                    <button type="button" id="tab-btn-probecard" class="mappings-tab-btn active"
+                                        onclick="switchMappingsTab('probecard')">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <path
+                                                d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z">
+                                            </path>
+                                            <line x1="7" y1="7" x2="7.01" y2="7"></line>
+                                        </svg>
+                                        Probe Card Tag
+                                    </button>
+                                    <button type="button" id="tab-btn-cassette" class="mappings-tab-btn"
+                                        onclick="switchMappingsTab('cassette')">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <path
+                                                d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z">
+                                            </path>
+                                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                                        </svg>
+                                        Cassette Tag
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- VIEW 1: PROBE CARD MAPPINGS -->
+                            <div id="view-probecard-mappings" class="mappings-tab-view active">
+                                <div class="mappings-card-header">
+                                    <div class="mappings-header-title-group">
+                                        <h3 class="mappings-card-title">
+                                            Current Mappings &amp; Status (<span id="mappings-count">0</span> รายการ)
+                                        </h3>
+                                        <p class="mappings-card-subtitle" id="mappings-source">
+                                            Source: Smart Store Probe Card (MySQL Database)
+                                        </p>
+                                    </div>
+                                    <div class="mappings-header-action-group">
+                                        <div class="mappings-search-wrapper">
+                                            <input type="text" id="mappings-search-input"
+                                                placeholder="ค้นหา FPC ID, Header ID, Comment..."
+                                                oninput="filterMappingsTable()">
+                                        </div>
+                                        <button id="btn-sync-mappings" class="btn-sync-now"
+                                            onclick="syncStoreMappings()">
+                                            <svg class="sync-icon" width="16" height="16" viewBox="0 0 24 24"
+                                                fill="none" stroke="currentColor" stroke-width="2.5"
+                                                stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <polyline points="1 20 1 14 7 14"></polyline>
+                                                <path
+                                                    d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15">
+                                                </path>
+                                            </svg>
+                                            <span id="btn-sync-text">Sync Now</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="mappings-table-wrapper">
+                                    <table class="mappings-table" id="mappings-table">
+                                        <thead>
+                                            <tr>
+                                                <th>FPC ID</th>
+                                                <th>Header ID</th>
+                                                <th>Touchdown</th>
+                                                <th>Latest PM</th>
+                                                <th>Timer</th>
+                                                <th>Comment</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="mappings-table-body">
+                                            <tr>
+                                                <td colspan="6" class="mappings-loading">กำลังโหลดข้อมูล...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- VIEW 2: CASSETTE TAG MAPPINGS -->
+                            <div id="view-cassette-mappings" class="mappings-tab-view" style="display: none;">
+                                <div class="mappings-card-header">
+                                    <div class="mappings-header-title-group">
+                                        <h3 class="mappings-card-title">
+                                            Cassette Tag Mappings (<span id="cabinet-mappings-count">0</span> รายการ)
+                                        </h3>
+                                        <p class="mappings-card-subtitle" id="cabinet-mappings-source">
+                                            Source: Smart Store Cabinet (MySQL Database)
+                                        </p>
+                                    </div>
+                                    <div class="mappings-header-action-group">
+                                        <div class="mappings-search-wrapper">
+                                            <input type="text" id="cabinet-search-input"
+                                                placeholder="ค้นหา Tag ID, Lot ID, Batch ID..."
+                                                oninput="filterCabinetTable()">
+                                        </div>
+                                        <button id="btn-sync-cabinet" class="btn-sync-now"
+                                            onclick="syncCabinetMappings()">
+                                            <svg class="sync-icon" width="16" height="16" viewBox="0 0 24 24"
+                                                fill="none" stroke="currentColor" stroke-width="2.5"
+                                                stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <polyline points="1 20 1 14 7 14"></polyline>
+                                                <path
+                                                    d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15">
+                                                </path>
+                                            </svg>
+                                            <span id="btn-sync-cabinet-text">Sync Now</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="mappings-table-wrapper">
+                                    <table class="mappings-table" id="cabinet-mappings-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Tag ID (Cassette)</th>
+                                                <th>Lot ID</th>
+                                                <th>Batch ID</th>
+                                                <th>Mapping Time</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="cabinet-mappings-table-body">
+                                            <tr>
+                                                <td colspan="4" class="mappings-loading">กำลังโหลดข้อมูล...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="logout-section">
-                            <button class="btn btn-secondary" onclick="logout()">Logout from Settings</button>
+                        <!-- Settings Footer Actions (Settings Log & Logout) -->
+                        <div class="settings-footer-actions">
+                            <button class="btn btn-settings-footer" onclick="openSettingsLog()">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                    <polyline points="10 9 9 9 8 9"></polyline>
+                                </svg>
+                                Settings Log
+                            </button>
+                            <button class="btn btn-settings-footer" onclick="logout()">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                                    <polyline points="16 17 21 12 16 7"></polyline>
+                                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                                </svg>
+                                Logout from Settings
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -880,139 +1085,164 @@
                 </div>
             </div>
         </div>
-    </div>
-    <!-- Settings Log Modal -->
-    <div id="settings-log-modal" class="modal" style="display:none;">
-        <div class="modal-dialog">
-            <div class="modal-header" style="justify-content: center; position: relative;">
-                <h3 class="settings-log-title">Settings Log</h3>
-                <button class="modal-close" onclick="closeSettingsLog()"
-                    style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%);">×</button>
-            </div>
-            <div class="modal-toolbar">
-                <div class="search-section" style="width: 100%; margin-bottom: 8px;">
-                    <div class="search-group">
-                        <label for="syslog-emp">Employee ID</label>
-                        <input id="syslog-emp" class="search-input" placeholder="Employee ID">
-                    </div>
-                    <div class="search-group">
-                        <label for="syslog-action">Action contains...</label>
-                        <input id="syslog-action" class="search-input" placeholder="Action contains...">
-                    </div>
-                    <div class="search-group">
-                        <label for="syslog-date">Date</label>
-                        <input id="syslog-date" class="search-input" type="date">
-                    </div>
-                    <button class="clear-btn" onclick="clearSettingsLogFilters()">Clear</button>
+        <!-- Settings Log Modal -->
+        <div id="settings-log-modal" class="modal" style="display:none;">
+            <div class="modal-dialog">
+                <div class="modal-header" style="justify-content: center; position: relative;">
+                    <h3 class="settings-log-title">Settings Log</h3>
+                    <button class="modal-close" onclick="closeSettingsLog()"
+                        style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%);">×</button>
+                </div>
+                <div class="modal-toolbar">
+                    <div class="search-section" style="width: 100%; margin-bottom: 8px;">
+                        <div class="search-group">
+                            <label for="syslog-emp">Employee ID</label>
+                            <input id="syslog-emp" class="search-input" placeholder="Employee ID">
+                        </div>
+                        <div class="search-group">
+                            <label for="syslog-action">Action contains...</label>
+                            <input id="syslog-action" class="search-input" placeholder="Action contains...">
+                        </div>
+                        <div class="search-group">
+                            <label for="syslog-date">Date</label>
+                            <input id="syslog-date" class="search-input" type="date">
+                        </div>
+                        <button class="clear-btn" onclick="clearSettingsLogFilters()">Clear</button>
 
-                    <button class="search-btn" onclick="loadSettingsLog(1)"
-                        style="grid-column: span 4; margin-top: 8px; width: 100%;">Search</button>
-                </div>
+                        <button class="search-btn" onclick="loadSettingsLog(1)"
+                            style="grid-column: span 4; margin-top: 8px; width: 100%;">Search</button>
+                    </div>
 
-                <div class="table-info"
-                    style="width: 100%; border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
-                    <span>Total Records: <span id="syslog-record-count">0</span></span>
+                    <div class="table-info"
+                        style="width: 100%; border-top: 1px solid #eee; padding-top: 8px; margin-top: 4px;">
+                        <span>Total Records: <span id="syslog-record-count">0</span></span>
+                    </div>
                 </div>
-            </div>
-            <div class="modal-body">
-                <div class="log-scroll" style="height: 100%; margin-top: 0;">
-                    <table class="log-table">
-                        <thead>
-                            <tr>
-                                <th>Employee</th>
-                                <th>Action</th>
-                                <th>Timestamp</th>
-                                <th>IP</th>
-                            </tr>
-                        </thead>
-                        <tbody id="syslog-body"></tbody>
-                    </table>
+                <div class="modal-body">
+                    <div class="log-scroll" style="height: 100%; margin-top: 0;">
+                        <table class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>Employee</th>
+                                    <th>Action</th>
+                                    <th>Timestamp</th>
+                                    <th>IP</th>
+                                </tr>
+                            </thead>
+                            <tbody id="syslog-body"></tbody>
+                        </table>
+                    </div>
                 </div>
-            </div>
-            <div class="modal-footer">
-                <div id="syslog-pagination" class="pagination-controls"></div>
+                <div class="modal-footer">
+                    <div id="syslog-pagination" class="pagination-controls"></div>
+                </div>
             </div>
         </div>
-    </div>
 
 
-    <script src="script.js?v=20260902_pmi_v2"></script>
+        <script src="script.js?v=20260912_view_mode_v2"></script>
 
-    <div id="mismatch-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mm-title"
-        style="display:none">
-        <div class="modal-content">
-            <h2 id="mm-title">FPC / Header Mismatch</h2>
-            <p id="mm-text"></p>
-            <div class="modal-actions">
-                <button class="btn btn-primary" id="mm-ack">OK</button>
+        <div id="mismatch-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mm-title"
+            style="display:none">
+            <div class="modal-content">
+                <h2 id="mm-title">FPC / Header Mismatch</h2>
+                <p id="mm-text"></p>
+                <div class="modal-actions">
+                    <button class="btn btn-primary" id="mm-ack">OK</button>
+                </div>
             </div>
         </div>
-    </div>
+        <script>
+            // 1 m = 20 px; origin in meters (you can tune later)
+            window.PPM = 20;
+            window.ORIGIN_M = { x: 0, y: 0 };
+
+            // Two robots appear on the legend & get colored icons
+            window.ROBOTS_CFG = [
+                { "name": "Robot FPC no.1", "color": "#00e0ff" },
+                { "name": "Robot FPC no.2", "color": "#ff6b6b" }
+            ];
+
+            // Assets (place these under your /static/)
+            window.FLOORPLAN_URL = "/static/map_image_new.png";
+            window.AGV_ICONS = {
+                "#00e0ff": "/static/agv_blue.png",
+                "#ff6b6b": "/static/agv_red.png"
+            };
+        </script>
+
+        <link rel="stylesheet" href="/static/styles.css">
+        <script src="/static/agv-map.js"></script>
+
+        <!-- PM / Mismatch Warning Modal -->
+        <div id="pm-warning" class="modal" style="display:none;">
+            <div class="modal-dialog">
+                <div class="modal-header pm-warning-header">
+                    <h3 id="pm-warning-header-title"> Maintenance Required </h3>
+                    <button class="modal-close" id="pm-close" type="button"
+                        onclick="document.getElementById('pm-warning').style.display='none'; hidePmWarning();">×</button>
+                </div>
+                <div class="modal-body pm-warning-body">
+                    <div class="pm-warning-icon" id="pm-warning-icon">⚠️</div>
+                    <div class="pm-warning-title" id="pm-warning-title">Touchdown Limit Exceeded</div>
+                    <div class="pm-warning-text" id="pm-warning-text">
+                        <p>PM is <strong>REQUIRED</strong> before starting a new lot.</p>
+                        <p>Please remove FPC and Header from Prober Machine.</p>
+                    </div>
+                    <div id="pm-warning-detail" class="pm-warning-detail"></div>
+                </div>
+                <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
+                    <button class="btn btn-secondary" id="pm-ok" type="button"
+                        onclick="document.getElementById('pm-warning').style.display='none'; hidePmWarning();">OK</button>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- PM Prewarning (smaller, subtle) -->
+        <div id="pm-prewarn" class="modal" style="display:none;">
+            <div class="modal-dialog prewarn-dialog">
+                <div class="modal-header prewarn-header">
+                    <h3>PM Warning</h3>
+                    <button class="modal-close" onclick="hidePmPrewarning()">×</button>
+                </div>
+                <div class="modal-body prewarn-body">
+                    <h2 class="prewarn-title">Caution</h2>
+                    <!-- <span>Touchdown Nearing Limit</span> -->
+                    <div id="pm-prewarn-detail" class="prewarn-detail"></div>
+                </div>
+                <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
+                    <button class="btn btn-secondary" onclick="hidePmPrewarning()">OK</button>
+                </div>
+            </div>
+        </div>
+    </div> <!-- Close .container -->
+
+    <!-- Auto-Scale HMI Canvas (1280x800 Base Resolution, Edge-to-Edge Fullscreen) -->
     <script>
-        // 1 m = 20 px; origin in meters (you can tune later)
-        window.PPM = 20;
-        window.ORIGIN_M = { x: 0, y: 0 };
+        function fitHmiToScreen() {
+            const TARGET_WIDTH = 1280;
+            const TARGET_HEIGHT = 800;
+            const container = document.querySelector('.container');
+            if (!container) return;
 
-        // Two robots appear on the legend & get colored icons
-        window.ROBOTS_CFG = [
-            { "name": "Robot FPC no.1", "color": "#00e0ff" },
-            { "name": "Robot FPC no.2", "color": "#ff6b6b" }
-        ];
+            const winW = window.innerWidth;
+            const winH = window.innerHeight;
 
-        // Assets (place these under your /static/)
-        window.FLOORPLAN_URL = "/static/map_image_new.png";
-        window.AGV_ICONS = {
-            "#00e0ff": "/static/agv_blue.png",
-            "#ff6b6b": "/static/agv_red.png"
-        };
+            // Fill 100% width and height edge-to-edge (eliminates all side black bars completely)
+            const scaleX = winW / TARGET_WIDTH;
+            const scaleY = winH / TARGET_HEIGHT;
+
+            container.style.transform = `scale(${scaleX}, ${scaleY})`;
+            container.style.transformOrigin = 'center center';
+        }
+
+        window.addEventListener('resize', fitHmiToScreen);
+        window.addEventListener('DOMContentLoaded', fitHmiToScreen);
+        if (document.readyState !== 'loading') {
+            fitHmiToScreen();
+        }
     </script>
-
-    <link rel="stylesheet" href="/static/styles.css">
-    <script src="/static/agv-map.js"></script>
-
-    <!-- PM / Mismatch Warning Modal -->
-    <div id="pm-warning" class="modal" style="display:none;">
-        <div class="modal-dialog">
-            <div class="modal-header pm-warning-header">
-                <h3 id="pm-warning-header-title"> Maintenance Required </h3>
-                <button class="modal-close" id="pm-close" type="button"
-                    onclick="document.getElementById('pm-warning').style.display='none'; hidePmWarning();">×</button>
-            </div>
-            <div class="modal-body pm-warning-body">
-                <div class="pm-warning-icon" id="pm-warning-icon">⚠️</div>
-                <div class="pm-warning-title" id="pm-warning-title">Touchdown Limit Exceeded</div>
-                <div class="pm-warning-text" id="pm-warning-text">
-                    <p>PM is <strong>REQUIRED</strong> before starting a new lot.</p>
-                    <p>Please remove FPC and Header from Prober Machine.</p>
-                </div>
-                <div id="pm-warning-detail" class="pm-warning-detail"></div>
-            </div>
-            <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
-                <button class="btn btn-secondary" id="pm-ok" type="button"
-                    onclick="document.getElementById('pm-warning').style.display='none'; hidePmWarning();">OK</button>
-            </div>
-        </div>
-    </div>
-
-
-    <!-- PM Prewarning (smaller, subtle) -->
-    <div id="pm-prewarn" class="modal" style="display:none;">
-        <div class="modal-dialog prewarn-dialog">
-            <div class="modal-header prewarn-header">
-                <h3>PM Warning</h3>
-                <button class="modal-close" onclick="hidePmPrewarning()">×</button>
-            </div>
-            <div class="modal-body prewarn-body">
-                <h2 class="prewarn-title">Caution</h2>
-                <!-- <span>Touchdown Nearing Limit</span> -->
-                <div id="pm-prewarn-detail" class="prewarn-detail"></div>
-            </div>
-            <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
-                <button class="btn btn-secondary" onclick="hidePmPrewarning()">OK</button>
-            </div>
-        </div>
-    </div>
-
 </body>
 
 </html>
