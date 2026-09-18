@@ -553,7 +553,7 @@
 
                             <div class="search-group">
                                 <label for="search-agv">AGV No</label>
-                                <input id="search-agv" class="search-input" type="text" placeholder="e.g. AGV-01">
+                                <input id="search-agv" class="search-input" type="text" placeholder="e.g. 3,2">
                             </div>
 
                             <div class="search-group">
@@ -562,7 +562,16 @@
                             </div>
 
                             <div class="search-group">
-                                <label for="search-result">ผลลัพธ์ (Result)</label>
+                                <label for="search-cass-result">ผลลัพธ์ Cassette</label>
+                                <select id="search-cass-result" class="search-input search-select" onchange="searchLogs()">
+                                    <option value="all">ทั้งหมด (All)</option>
+                                    <option value="match">✓ ถูกต้อง (Match)</option>
+                                    <option value="not_found">🔍 ไม่พบข้อมูล (Not Found)</option>
+                                </select>
+                            </div>
+
+                            <div class="search-group">
+                                <label for="search-result">ผลลัพธ์ Probe Card</label>
                                 <select id="search-result" class="search-input search-select" onchange="searchLogs()">
                                     <option value="all">ทั้งหมด (All)</option>
                                     <option value="match">✓ จับคู่ถูกต้อง (Match)</option>
@@ -594,7 +603,8 @@
                                     <th>Timestamp</th>
                                     <th>AGV No</th>
                                     <th>Machine No</th>
-                                    <th>ผลลัพธ์ (Result)</th>
+                                    <th>ผลลัพธ์ Cassette</th>
+                                    <th>ผลลัพธ์ Probe Card</th>
                                 </tr>
                             </thead>
                             <tbody id="log-table-body">

@@ -1136,6 +1136,7 @@ function searchLogs() {
   const headerSearch = document.getElementById('search-header').value.trim();
   const agvSearch = document.getElementById('search-agv').value.trim();
   const resultSearch = document.getElementById('search-result')?.value || 'all';
+  const cassResultSearch = document.getElementById('search-cass-result')?.value || 'all';
 
   const params = new URLSearchParams();
   if (fpcSearch) params.append('fpc_id', fpcSearch);
@@ -1146,6 +1147,7 @@ function searchLogs() {
   if (headerSearch) params.append('header_id', headerSearch);
   if (agvSearch) params.append('agv_no', agvSearch);
   if (resultSearch && resultSearch !== 'all') params.append('result_filter', resultSearch);
+  if (cassResultSearch && cassResultSearch !== 'all') params.append('cassette_filter', cassResultSearch);
 
   const base = USE_MAIN_FOR_LOGS ? MAIN_API : '';
   const url = base ? `${base}api/search_logs?${params.toString()}` : `/api/search_logs?${params.toString()}`;
@@ -1179,6 +1181,7 @@ function clearSearch() {
   document.getElementById('search-header').value = '';
   document.getElementById('search-agv').value = '';
   if (document.getElementById('search-result')) document.getElementById('search-result').value = 'all';
+  if (document.getElementById('search-cass-result')) document.getElementById('search-cass-result').value = 'all';
   currentPage = 1;
   loadLogs();
 }
@@ -1208,6 +1211,17 @@ function displayLogs(data) {
       rowTitle = 'Valid Tag Pair';
     }
 
+    let cassBadge;
+    const cStatus = String(log.cassetteStatus || '').toUpperCase().trim();
+    const cResType = String(log.cassetteResultType || '').toLowerCase().trim();
+    if (cStatus === 'MATCH_OK' || cStatus === 'FOUND' || cStatus === 'LOADED' || cStatus === 'ACTIVE' || cResType === 'match') {
+      cassBadge = `<span class="badge-result badge-result-match">✓ Match (ถูกต้อง)</span>`;
+    } else if (cStatus === 'NOT_FOUND' || cResType === 'not_found') {
+      cassBadge = `<span class="badge-result badge-result-notfound">🔍 Not Found (ไม่พบข้อมูล)</span>`;
+    } else {
+      cassBadge = `<span class="text-muted" style="color: #94a3b8; font-weight: 500;">-</span>`;
+    }
+
     return `
         <tr title="${rowTitle}">
             <td>${log.lotId || ''}</td>
@@ -1217,6 +1231,7 @@ function displayLogs(data) {
             <td>${log.timestamp || ''}</td>
             <td>${log.agvNo || ''}</td>
             <td>${log.machineNo || ''}</td>
+            <td>${cassBadge}</td>
             <td>${statusBadge}</td>
         </tr>
     `;
@@ -1237,7 +1252,9 @@ function anyLogFilterFilled() {
   const hasText = ids.some(id => (document.getElementById(id)?.value || '').trim() !== '');
   const resVal = document.getElementById('search-result')?.value;
   const hasSelect = resVal && resVal !== 'all';
-  return hasText || hasSelect;
+  const cassVal = document.getElementById('search-cass-result')?.value;
+  const hasCassSelect = cassVal && cassVal !== 'all';
+  return hasText || hasSelect || hasCassSelect;
 }
 
 function anyCassetteLogFilterFilled() {
@@ -1423,6 +1440,7 @@ function exportCSV() {
   const headerSearch = document.getElementById('search-header')?.value.trim();
   const agvSearch = document.getElementById('search-agv')?.value.trim();
   const resultSearch = document.getElementById('search-result')?.value;
+  const cassResultSearch = document.getElementById('search-cass-result')?.value;
 
   if (fpcSearch) params.append('fpc_id', fpcSearch);
   if (dateSearch) params.append('date', dateSearch);
@@ -1432,6 +1450,7 @@ function exportCSV() {
   if (headerSearch) params.append('header_id', headerSearch);
   if (agvSearch) params.append('agv_no', agvSearch);
   if (resultSearch && resultSearch !== 'all') params.append('result_filter', resultSearch);
+  if (cassResultSearch && cassResultSearch !== 'all') params.append('cassette_filter', cassResultSearch);
 
   const hasFilter = Array.from(params.keys()).some(k => k !== 'page' && k !== 'pageSize');
   const endpoint = hasFilter ? 'api/search_logs' : 'api/logs';
@@ -1456,7 +1475,7 @@ function exportCSV() {
       const headers = [
         'id', 'lot_id', 'batch_id', 'fpc_id',
         'header_id', 'header_name', 'timestamp',
-        'agv_no', 'machine_no', 'result', 'touchdown', 'comment'
+        'agv_no', 'machine_no', 'cassette_result', 'probe_card_result', 'touchdown', 'comment'
       ];
 
       const rows = [headers];
@@ -1472,6 +1491,15 @@ function exportCSV() {
         const isMismatch = !isNotFound && (Boolean(log.isMismatch) || src === 'MISMATCH' || resType === 'mismatch');
         const resText = isNotFound ? 'Not Found' : (isMismatch ? 'Mismatch' : 'Match');
 
+        const cStat = String(log.cassetteStatus || '').toUpperCase();
+        const cRes = String(log.cassetteResultType || '').toLowerCase();
+        let cassText = '-';
+        if (cStat === 'MATCH_OK' || cStat === 'FOUND' || cStat === 'LOADED' || cStat === 'ACTIVE' || cRes === 'match') {
+          cassText = 'Match';
+        } else if (cStat === 'NOT_FOUND' || cRes === 'not_found') {
+          cassText = 'Not Found';
+        }
+
         rows.push([
           rawId,
           log.lotId || '',
@@ -1482,6 +1510,7 @@ function exportCSV() {
           log.timestamp || '',
           log.agvNo || '',
           log.machineNo || '',
+          cassText,
           resText,
           log.touchdown != null ? String(log.touchdown) : '',
           log.comment || ''
@@ -2725,9 +2754,9 @@ function _updateInfoBoxBadge(boxEl, type, text) {
     if (type === 'danger' || type === 'warning') {
       const isMis = text && text.includes('MISMATCH');
       const isNF = text && text.includes('NOT FOUND');
-      showPmWarning(window.__pmDetailText || `${text} occurred. Please check configuration.`, { 
-        type: isNF ? 'not_found' : (isMis ? 'mismatch' : 'touchdown'), 
-        force: true 
+      showPmWarning(window.__pmDetailText || `${text} occurred. Please check configuration.`, {
+        type: isNF ? 'not_found' : (isMis ? 'mismatch' : 'touchdown'),
+        force: true
       });
     }
   };
@@ -3092,7 +3121,7 @@ window.addEventListener('beforeunload', function () {
 
 
 // Virtual keyboard removed - using system/hardware keyboard on i.MX8
-window.VirtualKeyboard = { showFor: () => {}, hide: () => {} };
+window.VirtualKeyboard = { showFor: () => { }, hide: () => { } };
 
 // ============================================================================
 // CLEAR STATUS BUTTON HANDLER (เคลียร์ค่า & กลับสู่สถานะสีเทา)
@@ -3110,7 +3139,7 @@ function initClearStatusButton() {
     try {
       await fetch('/api/cassette/clear', { method: 'POST' });
     } catch (err) {
-      try { await fetch('/api/simulate_cassette?clear=true'); } catch (e) {}
+      try { await fetch('/api/simulate_cassette?clear=true'); } catch (e) { }
     }
 
     // 2. Reset frontend cassette & pair flags
@@ -3326,9 +3355,10 @@ function parsePmiFilename(rawFilename) {
 (function initPmiWebSocketClient() {
   const wsHost = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '127.0.0.1';
   const wsProto = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'wss:' : 'ws:';
-  const IMX8_WS_URL = `${wsProto}//${wsHost}:8001/ws`;
-  const IMX8_HTTP_BASE = `${(typeof window !== 'undefined' && window.location && window.location.protocol) ? window.location.protocol : 'http:'}//${wsHost}:8001`;
-  const LOCAL_HTTP_BASE = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : `http://${wsHost}:8002`;
+  const wsPort = (typeof window !== 'undefined' && window.location && window.location.port) ? window.location.port : '8002';
+  const IMX8_WS_URL = `${wsProto}//${wsHost}:${wsPort}/ws`;
+  const IMX8_HTTP_BASE = `${(typeof window !== 'undefined' && window.location && window.location.protocol) ? window.location.protocol : 'http:'}//${wsHost}:${wsPort}`;
+  const LOCAL_HTTP_BASE = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : `http://${wsHost}:${wsPort}`;
 
   let activeApiBase = IMX8_HTTP_BASE;
   let ws = null;
@@ -3572,7 +3602,7 @@ function parsePmiFilename(rawFilename) {
       let inspRes = null;
       let batchRes = null;
 
-      // 1. Try Primary Port 8001 (Dedicated Vision/AI Backend)
+      // 1. Try Primary Port 8002 (Dedicated Vision/AI Backend)
       try {
         const primaryCalls = await Promise.all([
           fetch(`${IMX8_HTTP_BASE}/api/latest-inspection`, { cache: 'no-store' }).catch(() => fetch(`${IMX8_HTTP_BASE}/api/v1/latest-inspection`, { cache: 'no-store' })),
@@ -3584,7 +3614,7 @@ function parsePmiFilename(rawFilename) {
           activeApiBase = IMX8_HTTP_BASE;
         }
       } catch (e) {
-        // Port 8001 not responding, fallback to local host
+        // Port 8002 not responding, fallback to local host
       }
 
       // 2. Fallback to Local Flask Service (Port 8002 / UIIU Simulation)

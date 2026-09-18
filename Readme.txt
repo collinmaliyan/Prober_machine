@@ -10,7 +10,7 @@
    - Run the application:
        python Main_Prober_with_error.py
    - Web UI accessible at:
-       http://127.0.0.1:8001
+       http://127.0.0.1:8002
 
 
 2. Running on NXP i.MX8 (Linux Yocto) / Raspberry Pi:

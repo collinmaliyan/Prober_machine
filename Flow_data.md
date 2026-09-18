@@ -29,7 +29,7 @@ graph TB
       
         App["Python Backend (Main_Prober)<br/>- Data Coordinator & Validation<br/>- Failover & Sync Engine"]
         SQLiteDB[("Local SQLite Database<br/>(Offline Cache สำรองในเครื่อง)")]
-        GUI["Web GUI Dashboard<br/>(Port 8001 / Touchscreen HMI)"]
+        GUI["Web GUI Dashboard<br/>(Port 8002 / Touchscreen HMI)"]
 
         R_HDR --> App
         R_FPC --> App
@@ -70,7 +70,7 @@ flowchart TD
         C3["3.3 โค้ดนำรหัสไปค้นหาใน Database (is_active_pair & get_enrichment)"]
         C4{"3.4 ตรวจสอบความถูกต้อง"}
       
-        D1["🟢 เข้ากันได้ (Match OK)<br/>- แสดงสถานะสีเขียวบน GUI (8001)<br/>- ดึงยอด Touchdown, วัน PM, Lot/Batch มาแสดงครบ"]
+        D1["🟢 เข้ากันได้ (Match OK)<br/>- แสดงสถานะสีเขียวบน GUI (8002)<br/>- ดึงยอด Touchdown, วัน PM, Lot/Batch มาแสดงครบ"]
         D2["🔴 ไม่เข้ากัน (Mismatch)<br/>- แสดงเตือนสีแดง (Mismatch / Not Allowed)<br/>- แจ้งเตือนผู้ปฏิบัติงานห้ามเริ่มรันงาน"]
       
         C1 --> C2 --> C3 --> C4
@@ -117,7 +117,7 @@ flowchart TD
 3. **การดึงข้อมูลประกอบ (Data Enrichment):**
    * ดึง `touchdown`, `latest_pm`, `comment` จากตาราง `fpc`
    * ดึง `batch_id`, `lot_id` จากตาราง `batch`
-4. **การแสดงผลบนหน้าจอ HMI Dashboard (พอร์ต 8001):**
+4. **การแสดงผลบนหน้าจอ HMI Dashboard (พอร์ต 8002):**
    * **กรณีถูกต้อง (Match OK):** แสดงกรอบสีเขียว พร้อม Touchdown Gauge
    * **กรณีผิดคู่ (Mismatch):** แสดงกรอบสีแดง แจ้งเตือนทันทีเพื่อป้องกันหัวเข็มเสียหาย
 

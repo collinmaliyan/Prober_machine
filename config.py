@@ -50,7 +50,10 @@ class Config:
     }
 
     # ——— App / device identity ———
-    AGV_NO = "-"
+    # Format: "<AGV_CASSETTE>,<AGV_FPC>" e.g. "3,2" (Front=Cassette AGV, Back=FPC AGV: 1 or 2)
+    AGV_CASSETTE_NO = "3"
+    AGV_FPC_NO = "2"
+    AGV_NO = "3,2"
     # --- [COMMENTED OUT] Original machine name ---
     # MACHINE_NO = "AVT#55"
     # --- [NEW] Dynamic machine name variable (updatable via settings API) ---
@@ -88,12 +91,12 @@ class Config:
         RFID_PORT_CASSETTE = "/dev/ttyUSB2" # Cassette Reader (RFID-1)
     else:
         RFID_PORT = "COM4"
-        RFID_PORT_FPC = "COM5"
+        RFID_PORT_FPC = "COM6"
         RFID_PORT_CASSETTE = "COM8"
 
     RFID_BAUDRATE = 115200
     RFID_TX_POWER = 26.0       # Header Reader TX Power (dBm, 13.0 - 26.0)
-    RFID_TX_POWER_FPC = 26.0   # FPC Reader TX Power (dBm, 13.0 - 26.0)
+    RFID_TX_POWER_FPC = 24.0   # FPC Reader TX Power (dBm, 13.0 - 26.0)
 
     # ——— Stage Machine Timers / Windows ———
     FPC_WINDOW_S = 10.0              # 10s reading window when sensor goes ACTIVE
@@ -101,7 +104,7 @@ class Config:
     CASSETTE_CLEAR_TIMEOUT_S = 60
 
     # ——— Laptop simulator (dev/test) ———
-    SIMULATE_SENSOR_WITH_KEYBOARD = False
+    SIMULATE_SENSOR_WITH_KEYBOARD = True
     SENSOR_TOGGLE_KEY = "t"
 
 

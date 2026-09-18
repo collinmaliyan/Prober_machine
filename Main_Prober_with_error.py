@@ -402,7 +402,8 @@ class DatabaseManager:
     def store_scan_log(timestamp, machine_no, agv_no, fpc_id,
                        header_id=None, header_name=None,
                        batch_id=None, lot_id=None, source='BOTH',
-                       touchdown=None, latest_pm=None, comment=None):
+                       touchdown=None, latest_pm=None, comment=None,
+                       cassette_status=None, cassette_id=None):
         """Write one immutable snapshot row into local SQLite scan_log used by GUI."""
         try:
             conn = DatabaseManager.get_local_connection()
@@ -411,14 +412,14 @@ class DatabaseManager:
                 INSERT INTO scan_log
                     (source, header_id, header_name, fpc_id,
                     batch_id, lot_id, touchdown, latest_pm, comment,
-                    agv_no, machine_no, timestamp, synced)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
+                    agv_no, machine_no, timestamp, synced, cassette_status, cassette_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s)
             """, (source, header_id, header_name, fpc_id,
                   batch_id, lot_id, touchdown, latest_pm, comment,
-                  agv_no, machine_no, timestamp))
+                  agv_no, machine_no, timestamp, cassette_status, cassette_id))
             conn.commit()
             conn.close()
-            print(f"[SCAN LOG STORED] FPC:{fpc_id} + HDR:{header_id} at {timestamp} (TD:{touchdown}, PM:{latest_pm})")
+            print(f"[SCAN LOG STORED] FPC:{fpc_id} + HDR:{header_id} at {timestamp} (Cassette:{cassette_id} -> {cassette_status})")
             return True
         except Exception as e:
             print(f"[ERROR] store_scan_log: {e}")
@@ -1501,55 +1502,80 @@ def yrm_single_inventory_once(ser, collect_window_s=0.15):
 # -----------------------------------------------------------------
 # Cassette Reader helper: supports USB HID / SmartCard & COM ports
 # -----------------------------------------------------------------
+_cass_conn_cache = {"time": 0.0, "result": False}
+_cass_conn_lock = threading.Lock()
+
 def is_cassette_hw_connected() -> bool:
     """
     Check if Cassette Reader (OMNIKEY 5127 CK or Serial COM Reader) is physically connected.
     Supports:
     1. USB SmartCard / HID composite mode (VID_076B & PID_5128 / PID_5127) on Windows & Linux
     2. Virtual COM port mode (via serial.tools.list_ports)
+    Caches result for 2.0s to avoid high-frequency native/COM scanning across threads.
     """
-    # 1. Check COM ports first
-    try:
-        cass_port = str(getattr(Config, 'RFID_PORT_CASSETTE', '') or '').upper()
-        for p in list_ports.comports():
-            hwid = (p.hwid or "").upper()
-            desc = (p.description or "").upper()
-            device = (p.device or "").upper()
-            if "076B" in hwid or "5128" in hwid or "5127" in desc or "OMNIKEY" in desc or (cass_port and device == cass_port):
-                return True
-    except Exception:
-        pass
+    now = time.time()
+    if now - _cass_conn_cache["time"] < 2.0:
+        return _cass_conn_cache["result"]
 
-    # 2. Check Windows PnP Active Device Tree (CfgMgr32 API - instant native check)
-    if platform.system() == "Windows":
+    with _cass_conn_lock:
+        if now - _cass_conn_cache["time"] < 2.0:
+            return _cass_conn_cache["result"]
+
+        connected = False
+
+        # 1. Check COM ports first
         try:
-            import ctypes
-            cfgmgr32 = ctypes.windll.cfgmgr32
-            CM_GETIDLIST_FILTER_PRESENT = 0x100
-            buf_len = ctypes.c_ulong(0)
-            if cfgmgr32.CM_Get_Device_ID_List_SizeW(ctypes.byref(buf_len), None, CM_GETIDLIST_FILTER_PRESENT) == 0 and buf_len.value > 0:
-                buf = ctypes.create_unicode_buffer(buf_len.value)
-                if cfgmgr32.CM_Get_Device_ID_ListW(None, buf, buf_len.value, CM_GETIDLIST_FILTER_PRESENT) == 0:
-                    raw_str = "".join(buf)
-                    for part in raw_str.split('\x00'):
-                        u = part.upper()
-                        if "VID_076B" in u or "PID_5128" in u or "PID_5127" in u or "OMNIKEY" in u:
-                            return True
+            cass_port = str(getattr(Config, 'RFID_PORT_CASSETTE', '') or '').upper()
+            for p in list_ports.comports():
+                hwid = (p.hwid or "").upper()
+                desc = (p.description or "").upper()
+                device = (p.device or "").upper()
+                if "076B" in hwid or "5128" in hwid or "5127" in desc or "OMNIKEY" in desc or (cass_port and device == cass_port):
+                    connected = True
+                    break
         except Exception:
             pass
 
-    # 3. Check Linux USB sysfs
-    elif platform.system() == "Linux":
-        try:
-            import glob
-            for f in glob.glob("/sys/bus/usb/devices/*/idVendor"):
-                with open(f, 'r') as fp:
-                    if fp.read().strip().lower() == "076b":
-                        return True
-        except Exception:
-            pass
+        # 2. Check Windows PnP Active Device Tree (CfgMgr32 API - instant native check)
+        if not connected and platform.system() == "Windows":
+            try:
+                import ctypes
+                cfgmgr32 = ctypes.windll.cfgmgr32
+                cfgmgr32.CM_Get_Device_ID_List_SizeW.argtypes = [ctypes.POINTER(ctypes.c_ulong), ctypes.c_wchar_p, ctypes.c_ulong]
+                cfgmgr32.CM_Get_Device_ID_List_SizeW.restype = ctypes.c_ulong
+                cfgmgr32.CM_Get_Device_ID_ListW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong]
+                cfgmgr32.CM_Get_Device_ID_ListW.restype = ctypes.c_ulong
 
-    return False
+                CM_GETIDLIST_FILTER_PRESENT = 0x100
+                buf_len = ctypes.c_ulong(0)
+                if cfgmgr32.CM_Get_Device_ID_List_SizeW(ctypes.byref(buf_len), None, CM_GETIDLIST_FILTER_PRESENT) == 0 and buf_len.value > 0:
+                    alloc_len = buf_len.value + 4096
+                    buf = ctypes.create_unicode_buffer(alloc_len)
+                    if cfgmgr32.CM_Get_Device_ID_ListW(None, buf, alloc_len, CM_GETIDLIST_FILTER_PRESENT) == 0:
+                        raw_str = "".join(buf)
+                        for part in raw_str.split('\x00'):
+                            u = part.upper()
+                            if "VID_076B" in u or "PID_5128" in u or "PID_5127" in u or "OMNIKEY" in u:
+                                connected = True
+                                break
+            except Exception:
+                pass
+
+        # 3. Check Linux USB sysfs
+        elif not connected and platform.system() == "Linux":
+            try:
+                import glob
+                for f in glob.glob("/sys/bus/usb/devices/*/idVendor"):
+                    with open(f, 'r') as fp:
+                        if fp.read().strip().lower() == "076b":
+                            connected = True
+                            break
+            except Exception:
+                pass
+
+        _cass_conn_cache["time"] = time.time()
+        _cass_conn_cache["result"] = connected
+        return connected
 
 # -----------------------------------------------------------------
 # Sensor helper: supports GPIO (Pi) or MiR register polling
@@ -3327,6 +3353,13 @@ class RFIDApp:
                 }
             }
 
+            # Dynamic AGV No for live view based on cassette and fpc presence
+            has_live_cass = bool(self._cassette_state.get('cassette_id'))
+            has_live_fpc = bool(current.get('fpc_id'))
+            live_cass_agv = getattr(Config, 'AGV_CASSETTE_NO', '3') if has_live_cass else '-'
+            live_fpc_agv = getattr(Config, 'AGV_FPC_NO', '2') if has_live_fpc else '-'
+            current['agv_no'] = '-' if (live_cass_agv == '-' and live_fpc_agv == '-') else f"{live_cass_agv},{live_fpc_agv}"
+
             # --- [NEW] Include machine_no in non-mockup response ---
             return jsonify({
                 'status': 'success',
@@ -3733,16 +3766,23 @@ class RFIDApp:
             if lot_id and batch_id:
                 conn_local = DatabaseManager.get_local_connection()
                 cur_local = conn_local.cursor()
+                cass_stat = "NOT_FOUND" if is_nf else "MATCH_OK"
+                cass_agv_val = getattr(Config, 'AGV_CASSETTE_NO', '3')
                 cur_local.execute("""
                     UPDATE scan_log
-                    SET lot_id = %s, batch_id = %s
+                    SET lot_id = %s, batch_id = %s, cassette_status = %s, cassette_id = %s,
+                        agv_no = CASE 
+                            WHEN agv_no LIKE '-,%' THEN REPLACE(agv_no, '-,', %s || ',')
+                            WHEN agv_no = '-' OR agv_no IS NULL OR agv_no = '' THEN %s || ',-'
+                            ELSE agv_no
+                        END
                     WHERE id = (
                         SELECT id FROM scan_log
                         WHERE (lot_id IS NULL OR lot_id = '' OR lot_id = '-')
                         ORDER BY id DESC
                         LIMIT 1
                     )
-                """, (lot_id, batch_id))
+                """, (lot_id, batch_id, cass_stat, cass_id, cass_agv_val, cass_agv_val))
                 conn_local.commit()
                 conn_local.close()
         except Exception as e:
@@ -3902,10 +3942,24 @@ class RFIDApp:
                                 current_batch_id = self._cassette_state.get('batch_id') or self._pair_state.get('batch_id')
                                 current_lot_id = self._cassette_state.get('lot_id') or self._pair_state.get('lot_id')
 
+                                # Determine cassette verification status
+                                c_id = self._cassette_state.get('cassette_id')
+                                c_nf = bool(self._cassette_state.get('not_found', False))
+                                c_status = None
+                                if c_id:
+                                    c_status = 'NOT_FOUND' if c_nf else 'MATCH_OK'
+
+                                # Determine dynamic agv_no based on presence of cassette and fpc
+                                has_c = bool(c_id and str(c_id).strip() and str(c_id).strip() != '-')
+                                has_f = bool(fpc_last_id and str(fpc_last_id).strip() and str(fpc_last_id).strip() != '-')
+                                cass_agv = getattr(Config, 'AGV_CASSETTE_NO', '3') if has_c else '-'
+                                fpc_agv = getattr(Config, 'AGV_FPC_NO', '2') if has_f else '-'
+                                row_agv_no = '-' if (cass_agv == '-' and fpc_agv == '-') else f"{cass_agv},{fpc_agv}"
+
                                 DatabaseManager.store_scan_log(
                                     timestamp=ts_now,
                                     machine_no=getattr(Config, 'MACHINE_NO', '-'),
-                                    agv_no=getattr(Config, 'AGV_NO', '-'),
+                                    agv_no=row_agv_no,
                                     fpc_id=fpc_last_id,
                                     header_id=hdr_for_commit,
                                     header_name=None,
@@ -3914,9 +3968,11 @@ class RFIDApp:
                                     source=src,
                                     touchdown=td_val,
                                     latest_pm=pm_val,
-                                    comment=cm_val
+                                    comment=cm_val,
+                                    cassette_status=c_status,
+                                    cassette_id=c_id
                                 )
-                                print(f"[SCAN LOGGER] Log inserted ({src}): Header={hdr_for_commit}, FPC={fpc_last_id}, Batch={current_batch_id}, Lot={current_lot_id} @ {ts_now}")
+                                print(f"[SCAN LOGGER] Log inserted ({src}): Header={hdr_for_commit}, FPC={fpc_last_id}, Batch={current_batch_id}, Lot={current_lot_id}, Cassette={c_id} ({c_status}) @ {ts_now}")
                             except Exception as e:
                                 print(f"[SCAN LOGGER] store_scan_log error: {e}")
 
@@ -3943,7 +3999,7 @@ class RFIDApp:
 
             # Get paginated rows with immutable source & comment
             cur.execute("""
-                SELECT id, fpc_id, header_id, header_name, timestamp, agv_no, machine_no, batch_id, lot_id, source, touchdown, comment
+                SELECT id, fpc_id, header_id, header_name, timestamp, agv_no, machine_no, batch_id, lot_id, source, touchdown, comment, cassette_status, cassette_id
                 FROM scan_log
                 ORDER BY timestamp DESC
                 LIMIT %s OFFSET %s
@@ -3960,21 +4016,43 @@ class RFIDApp:
                 is_nf = (source_val == 'NOT_FOUND')
                 is_mis = (source_val in ('MISMATCH', 'MISMATCH_DETECTED', 'NOT_ALLOWED'))
                 res_type = 'not_found' if is_nf else ('mismatch' if is_mis else 'match')
+
+                cass_stat_raw = str(r[12] or '').upper().strip() if len(r) > 12 and r[12] else None
+                if cass_stat_raw in ('MATCH_OK', 'FOUND', 'LOADED', 'ACTIVE'):
+                    cass_res_type = 'match'
+                elif cass_stat_raw == 'NOT_FOUND':
+                    cass_res_type = 'not_found'
+                else:
+                    cass_res_type = 'none'
+
+                raw_agv = str(r[5] or '').strip()
+                has_c = bool(r[13] if len(r) > 13 else None) or bool(cass_stat_raw)
+                has_f = bool(f_id and str(f_id).strip() and str(f_id).strip() != '-')
+                if not raw_agv or raw_agv in ('-', '3,2'):
+                    cp = getattr(Config, 'AGV_CASSETTE_NO', '3') if has_c else '-'
+                    fp = getattr(Config, 'AGV_FPC_NO', '2') if has_f else '-'
+                    display_agv = '-' if (cp == '-' and fp == '-') else f"{cp},{fp}"
+                else:
+                    display_agv = raw_agv
+
                 logs.append({
-                    "logId":     f"LOG{str(r[0]).zfill(6)}",
-                    "fpcId":     f_id,
-                    "headerId":  h_id,
-                    "headerName": r[3],
-                    "timestamp": (r[4].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[4], 'strftime') else str(r[4])) if r[4] else None,
-                    "agvNo":     r[5],
-                    "machineNo": r[6],
-                    "batchId":   r[7],
-                    "lotId":     r[8],
-                    "source":    source_val,
-                    "resultType": res_type,
-                    "touchdown": r[10],
-                    "comment":   r[11],
-                    "isMismatch": is_mis,
+                    "logId":              f"LOG{str(r[0]).zfill(6)}",
+                    "fpcId":              f_id,
+                    "headerId":           h_id,
+                    "headerName":         r[3],
+                    "timestamp":          (r[4].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[4], 'strftime') else str(r[4])) if r[4] else None,
+                    "agvNo":              display_agv,
+                    "machineNo":          r[6],
+                    "batchId":            r[7],
+                    "lotId":              r[8],
+                    "source":             source_val,
+                    "resultType":         res_type,
+                    "touchdown":          r[10],
+                    "comment":            r[11],
+                    "isMismatch":         is_mis,
+                    "cassetteStatus":     cass_stat_raw,
+                    "cassetteResultType": cass_res_type,
+                    "cassetteId":         r[13] if len(r) > 13 else None,
                 })
 
             return jsonify({
@@ -4001,6 +4079,7 @@ class RFIDApp:
             agv_no = request.args.get('agv_no')
             date   = request.args.get('date')      # YYYY-MM-DD
             result_filter = (request.args.get('result_filter') or 'all').lower()
+            cassette_filter = (request.args.get('cassette_filter') or 'all').lower()
             page = int(request.args.get('page', 1))
             page_size = int(request.args.get('pageSize') or request.args.get('page_size') or Config.PAGE_SIZE)
             page_size = min(max(1, page_size), 50000)
@@ -4043,6 +4122,11 @@ class RFIDApp:
             elif result_filter == 'match':
                 filters.append("(UPPER(source) NOT IN ('MISMATCH', 'MISMATCH_DETECTED', 'NOT_ALLOWED', 'NOT_FOUND') OR source IS NULL)")
 
+            if cassette_filter == 'match':
+                filters.append("(UPPER(cassette_status) IN ('MATCH_OK', 'FOUND', 'LOADED', 'ACTIVE'))")
+            elif cassette_filter == 'not_found':
+                filters.append("(UPPER(cassette_status) = 'NOT_FOUND')")
+
             where = ("WHERE " + " AND ".join(filters)) if filters else ""
 
             conn = DatabaseManager.get_connection()
@@ -4053,7 +4137,7 @@ class RFIDApp:
             total_pages = (total + page_size - 1) // page_size if total > 0 else 1
 
             cur.execute(f"""
-                SELECT id, fpc_id, header_id, header_name, timestamp, agv_no, machine_no, batch_id, lot_id, source, touchdown, comment
+                SELECT id, fpc_id, header_id, header_name, timestamp, agv_no, machine_no, batch_id, lot_id, source, touchdown, comment, cassette_status, cassette_id
                 FROM scan_log
                 {where}
                 ORDER BY timestamp DESC
@@ -4070,21 +4154,43 @@ class RFIDApp:
                 is_nf = (source_val == 'NOT_FOUND')
                 is_mis = (source_val in ('MISMATCH', 'MISMATCH_DETECTED', 'NOT_ALLOWED'))
                 res_type = 'not_found' if is_nf else ('mismatch' if is_mis else 'match')
+
+                cass_stat_raw = str(r[12] or '').upper().strip() if len(r) > 12 and r[12] else None
+                if cass_stat_raw in ('MATCH_OK', 'FOUND', 'LOADED', 'ACTIVE'):
+                    cass_res_type = 'match'
+                elif cass_stat_raw == 'NOT_FOUND':
+                    cass_res_type = 'not_found'
+                else:
+                    cass_res_type = 'none'
+
+                raw_agv = str(r[5] or '').strip()
+                has_c = bool(r[13] if len(r) > 13 else None) or bool(cass_stat_raw)
+                has_f = bool(f_id and str(f_id).strip() and str(f_id).strip() != '-')
+                if not raw_agv or raw_agv in ('-', '3,2'):
+                    cp = getattr(Config, 'AGV_CASSETTE_NO', '3') if has_c else '-'
+                    fp = getattr(Config, 'AGV_FPC_NO', '2') if has_f else '-'
+                    display_agv = '-' if (cp == '-' and fp == '-') else f"{cp},{fp}"
+                else:
+                    display_agv = raw_agv
+
                 logs.append({
-                    "logId":     f"LOG{str(r[0]).zfill(6)}",
-                    "fpcId":    f_id,
-                    "headerId": h_id,
-                    "headerName": r[3],
-                    "timestamp": (r[4].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[4], 'strftime') else str(r[4])) if r[4] else None,
-                    "agvNo":    r[5],
-                    "machineNo":r[6],
-                    "batchId":  r[7],
-                    "lotId":    r[8],
-                    "source":   source_val,
-                    "resultType": res_type,
-                    "touchdown": r[10],
-                    "comment":  r[11],
-                    "isMismatch": is_mis,
+                    "logId":              f"LOG{str(r[0]).zfill(6)}",
+                    "fpcId":              f_id,
+                    "headerId":           h_id,
+                    "headerName":         r[3],
+                    "timestamp":          (r[4].strftime('%Y-%m-%d %H:%M:%S') if hasattr(r[4], 'strftime') else str(r[4])) if r[4] else None,
+                    "agvNo":              display_agv,
+                    "machineNo":          r[6],
+                    "batchId":            r[7],
+                    "lotId":              r[8],
+                    "source":             source_val,
+                    "resultType":         res_type,
+                    "touchdown":          r[10],
+                    "comment":            r[11],
+                    "isMismatch":         is_mis,
+                    "cassetteStatus":     cass_stat_raw,
+                    "cassetteResultType": cass_res_type,
+                    "cassetteId":         r[13] if len(r) > 13 else None,
                 })
 
             return jsonify({
@@ -4477,7 +4583,7 @@ class RFIDApp:
             return conn
 
 
-    def run(self, host='0.0.0.0', port=8001, debug=False):
+    def run(self, host='0.0.0.0', port=8002, debug=False):
         """Run the Flask application"""
         self.app.run(host=host, port=port, debug=debug)
 
@@ -4513,7 +4619,7 @@ def main():
 
 
     # Run the Flask application
-    app.run(host='0.0.0.0', port=8001, debug=False)
+    app.run(host='0.0.0.0', port=8002, debug=False)
 
 
 if __name__ == '__main__':
